@@ -1,0 +1,7 @@
+requests
+beautifulsoup4
+python-dateutil
+difflib2
+sqlalchemy
+pdfplumber
+python-docx

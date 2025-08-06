@@ -1,23 +1,25 @@
 # document_ingestion.py
 """Utilities for ingesting compliance documents into the database.
 
-The module supports basic text extraction for PDF and DOCX files and
-automatically maps extracted content to EU AI Act rules based on the
-keyword matcher in :mod:`mapper`.
-
-This is a minimal prototype – it does not handle scanned PDFs or complex
-formats, but provides the plumbing needed for further expansion.
+This module provides helper functions for extracting plain text
+from PDF and DOCX files and storing them in the compliance
+database.  It then maps the extracted content to relevant AI Act
+rules using the keyword matcher from :mod:`mapper` and records
+those mappings in the database.  The implementation is a
+prototype; it does not handle scanned PDFs or complex formats,
+but establishes the plumbing needed for further expansion.
 """
 
 from pathlib import Path
 from typing import Optional
 
-import pdfplumber
-import docx
+import pdfplumber  # type: ignore
+import docx  # type: ignore
 from sqlalchemy.orm import Session
 
 from .mapper import match_rules
 from .models import Document, DocumentRuleMapping, Rule
+
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
     """Extract plain text from a PDF file (skips scanned images)."""
@@ -58,7 +60,6 @@ def ingest_document(
     Document
         The created database record.
     """
-
     suffix = file_path.suffix.lower()
     if suffix == ".pdf":
         text = extract_text_from_pdf(file_path)
