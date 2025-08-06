@@ -17,7 +17,10 @@ import pdfplumber  # type: ignore
 import docx  # type: ignore
 from sqlalchemy.orm import Session
 
-from .mapper import match_rules
+# Prefer the combined keyword/semantic matcher over the plain keyword
+# matcher.  This import is kept on a separate line so that tools
+# injecting automated fixes do not remove unused imports prematurely.
+from .combined_mapper import combined_match_rules
 from .models import Document, DocumentRuleMapping, Rule
 
 
@@ -79,7 +82,11 @@ def ingest_document(
     db.add(document)
     db.flush()  # obtain ID for relationships
 
-    matches = match_rules(text)
+    # Use the combined matcher to map the document's text to relevant
+    # rules.  Only section codes with a non‑zero combined score are
+    # returned.  This provides a more nuanced confidence value by
+    # blending keyword presence with semantic similarity.
+    matches = combined_match_rules(db, text)
     for section_code, confidence in matches.items():
         rule = db.query(Rule).filter_by(section_code=section_code).first()
         if not rule:

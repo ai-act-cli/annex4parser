@@ -4,3 +4,6 @@ python-dateutil
 sqlalchemy
 pdfplumber
 python-docx
+scikit-learn
+pytest
+# sentence-transformers # optional BERT

@@ -13,7 +13,7 @@ techniques in the future.
 import re
 from collections import defaultdict
 
-# Простейшая матрица ключевых слов → код статьи
+# Simple keyword matrix → article code
 KEYWORD_MAP = {
     "risk management": "Article9.2",
     "data governance": "Article10.1",
