@@ -1,11 +1,95 @@
 # document_ingestion.py
+"""Utilities for ingesting compliance documents into the database.
+
+The module supports basic text extraction for PDF and DOCX files and
+automatically maps extracted content to EU AI Act rules based on the
+keyword matcher in :mod:`mapper`.
+
+This is a minimal prototype – it does not handle scanned PDFs or complex
+formats, but provides the plumbing needed for further expansion.
+"""
+
 from pathlib import Path
+from typing import Optional
+
 import pdfplumber
+import docx
+from sqlalchemy.orm import Session
+
+from .mapper import match_rules
+from .models import Document, DocumentRuleMapping, Rule
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
-    """Извлекает текст из PDF-файла (не обрабатывает сканы)."""
-    text = []
+    """Extract plain text from a PDF file (skips scanned images)."""
+    text: list[str] = []
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             text.append(page.extract_text() or "")
     return "\n".join(text)
+
+
+def extract_text_from_docx(docx_path: Path) -> str:
+    """Extract plain text from a DOCX file."""
+    document = docx.Document(docx_path)
+    return "\n".join(p.text for p in document.paragraphs)
+
+
+def ingest_document(
+    file_path: Path,
+    db: Session,
+    *,
+    customer_id: Optional[str] = None,
+    ai_system_name: Optional[str] = None,
+    document_type: Optional[str] = None,
+) -> Document:
+    """Parse a document, store it in the database and map it to rules.
+
+    Parameters
+    ----------
+    file_path:
+        Path to the document to ingest.
+    db:
+        SQLAlchemy session.
+    customer_id, ai_system_name, document_type:
+        Optional metadata for the :class:`~models.Document` record.
+
+    Returns
+    -------
+    Document
+        The created database record.
+    """
+
+    suffix = file_path.suffix.lower()
+    if suffix == ".pdf":
+        text = extract_text_from_pdf(file_path)
+    elif suffix in {".docx", ".doc"}:
+        text = extract_text_from_docx(file_path)
+    else:
+        raise ValueError(f"Unsupported file type: {suffix}")
+
+    document = Document(
+        customer_id=customer_id,
+        filename=file_path.name,
+        file_path=str(file_path),
+        ai_system_name=ai_system_name,
+        document_type=document_type,
+    )
+
+    db.add(document)
+    db.flush()  # obtain ID for relationships
+
+    matches = match_rules(text)
+    for section_code, confidence in matches.items():
+        rule = db.query(Rule).filter_by(section_code=section_code).first()
+        if not rule:
+            continue
+        mapping = DocumentRuleMapping(
+            document_id=document.id,
+            rule_id=rule.id,
+            confidence_score=confidence,
+            mapped_by="auto",
+        )
+        db.add(mapping)
+
+    db.commit()
+    return document

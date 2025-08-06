@@ -10,7 +10,8 @@ import uuid
 Base = declarative_base()
 
 def generate_uuid():
-    return str(uuid.uuid4())
+    """Generate UUID objects compatible with SQLAlchemy's UUID type."""
+    return uuid.uuid4()
 
 class Regulation(Base):
     __tablename__ = "regulations"

@@ -1,7 +1,6 @@
 # mapper.py
 import re
 from collections import defaultdict
-from .models import DocumentRuleMapping
 
 # Простейшая матрица ключевых слов → код статьи
 KEYWORD_MAP = {
