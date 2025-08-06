@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from annex4parser.document_ingestion import ingest_document
 from annex4parser.models import Base, Regulation, Rule, DocumentRuleMapping
-from annex4parser.mapper import KEYWORD_MAP
+from annex4parser.mapper.mapper import KEYWORD_MAP
 
 import docx
 

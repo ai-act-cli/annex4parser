@@ -261,7 +261,7 @@ class RegulationMonitor:
                         )
                         self.db.add(alert)
                         # mark document as outdated
-                        doc = self.db.query(Document).get(mapping.document_id)
+                        doc = self.db.get(Document, mapping.document_id)
                         if doc:
                             doc.compliance_status = "outdated"
 

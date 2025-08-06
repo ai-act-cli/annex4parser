@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 # Prefer the combined keyword/semantic matcher over the plain keyword
 # matcher.  This import is kept on a separate line so that tools
 # injecting automated fixes do not remove unused imports prematurely.
-from .combined_mapper import combined_match_rules
+from .mapper.combined_mapper import combined_match_rules
 from .models import Document, DocumentRuleMapping, Rule
 
 
