@@ -18,8 +18,11 @@ pip install -r requirements.txt
 ### 2. Verify Installation
 
 ```bash
-# Run tests
-python -m pytest tests/ -v
+# Run tests (fast execution)
+python -m pytest tests/ -v --tb=short
+
+# Expected: 133 passed, 21 skipped in ~7 seconds
+# Note: 21 tests in test_retry.py are intentionally skipped
 
 # Run examples
 python examples/basic_usage.py
