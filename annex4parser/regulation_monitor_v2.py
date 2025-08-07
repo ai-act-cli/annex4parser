@@ -115,6 +115,9 @@ class RegulationMonitorV2:
                 source_type = result.get("type", "unknown")
                 stats[source_type] += 1
         
+        # Добавляем общее количество обработанных источников
+        stats["total"] = stats["eli_sparql"] + stats["rss"] + stats["html"] + stats["press_api"]
+        
         logger.info(f"Update completed: {stats}")
         return stats
     
