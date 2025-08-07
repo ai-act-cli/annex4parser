@@ -81,6 +81,7 @@ class RegulationMonitorV2:
         eli_sources = [s for s in active_sources if s.type == "eli_sparql"]
         rss_sources = [s for s in active_sources if s.type == "rss"]
         html_sources = [s for s in active_sources if s.type == "html"]
+        press_api_sources = [s for s in active_sources if s.type == "press_api"]
         
         # Создаём задачи для асинхронного выполнения
         tasks = []
@@ -96,12 +97,16 @@ class RegulationMonitorV2:
             # HTML источники
             for source in html_sources:
                 tasks.append(self._process_html_source(source, session))
+            
+            # Press API источники
+            for source in press_api_sources:
+                tasks.append(self._process_press_api_source(source, session))
         
         # Выполняем все задачи параллельно
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Подсчитываем статистику
-        stats = {"eli_sparql": 0, "rss": 0, "html": 0, "errors": 0}
+        stats = {"eli_sparql": 0, "rss": 0, "html": 0, "press_api": 0, "errors": 0}
         for result in results:
             if isinstance(result, Exception):
                 stats["errors"] += 1
@@ -121,32 +126,66 @@ class RegulationMonitorV2:
         """Обработать ELI SPARQL источник."""
         logger.info(f"Starting _process_eli_source for source: {source.id}")
         try:
-            # Извлекаем CELEX ID из URL или конфигурации
-            celex_id = self._extract_celex_id(source.url)
-            logger.info(f"Extracted CELEX ID: {celex_id} from URL: {source.url}")
+            # Получаем CELEX ID из extra, атрибута или URL
+            celex_id = None
+            if hasattr(source, 'extra') and source.extra and 'celex_id' in source.extra:
+                celex_id = source.extra['celex_id']
+            if not celex_id:
+                celex_id = getattr(source, 'celex_id', None)
+            if not celex_id:
+                celex_id = self._extract_celex_id(source.url)
+            logger.info(f"Using CELEX ID: {celex_id} for source: {source.id}")
             if not celex_id:
                 logger.warning(f"No CELEX ID found for source {source.id}")
                 return None
-            
-            # Получаем данные через ELI
-            eli_data = await fetch_latest_eli(session, celex_id)
-            logger.info(f"ELI data received: {eli_data is not None}")
+            # Получаем endpoint и SPARQL запрос
+            endpoint = getattr(source, 'endpoint', 'https://publications.europa.eu/webapi/rdf/sparql')
+            sparql_file = getattr(source, 'sparql', None)
+            # Загружаем SPARQL запрос
+            if sparql_file and sparql_file.startswith('file:'):
+                query_path = Path(sparql_file.replace('file:', ''))
+                if query_path.exists():
+                    with open(query_path, 'r') as f:
+                        sparql_query = f.read()
+                else:
+                    sparql_query = f"""
+                    PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
+                    SELECT ?title ?date ?version ?text WHERE {{
+                      ?work cdm:work_celex_number \"{celex_id}\" .
+                      ?work cdm:resource_legal_resource_has_title ?title .
+                      ?work cdm:work_date_document ?date .
+                      ?work cdm:work_version ?version .
+                      OPTIONAL {{ ?work cdm:resource_legal_resource_has_extracted_text ?text }}
+                    }}
+                    LIMIT 1
+                    """
+            else:
+                sparql_query = f"""
+                PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
+                SELECT ?title ?date ?version ?text WHERE {{
+                  ?work cdm:work_celex_number \"{celex_id}\" .
+                  ?work cdm:resource_legal_resource_has_title ?title .
+                  ?work cdm:work_date_document ?date .
+                  ?work cdm:work_version ?version .
+                  OPTIONAL {{ ?work cdm:resource_legal_resource_has_extracted_text ?text }}
+                }}
+                LIMIT 1
+                """
+            eli_data = await self._execute_sparql_query(session, endpoint, sparql_query)
+            logger.info(f"SPARQL data received: {eli_data is not None}")
             if not eli_data:
                 return None
-            
-            # Проверяем изменения
             content_hash = hashlib.sha256(eli_data['text'].encode()).hexdigest()
             logger.info(f"Content hash: {content_hash[:16]}...")
-            
+            # Сначала проверяем изменения
+            has_changed = self._has_content_changed(source.id, content_hash)
+            logger.info(f"Content has changed: {has_changed}")
             # Логируем операцию
             self._log_source_operation(
                 source.id, "success", content_hash, 
                 len(eli_data['text']), None
             )
-            
             # Обновляем регуляцию если есть изменения
-            has_changed = self._has_content_changed(source.id, content_hash)
-            logger.info(f"Content has changed: {has_changed}")
             if has_changed:
                 regulation = self._ingest_regulation_text(
                     name=eli_data.get('title', f"Regulation {celex_id}"),
@@ -154,12 +193,10 @@ class RegulationMonitorV2:
                     text=eli_data['text'],
                     url=source.url
                 )
-                logger.info(f"Updated regulation from ELI source {source.id}: {regulation.name}")
+                logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
             else:
                 logger.info("No changes detected, skipping regulation update")
-            
             return {"type": "eli_sparql", "source_id": source.id}
-            
         except Exception as e:
             self._log_source_operation(source.id, "error", None, None, str(e))
             raise
@@ -231,6 +268,80 @@ class RegulationMonitorV2:
             self._log_source_operation(source.id, "error", None, None, str(e))
             raise
     
+    async def _process_press_api_source(
+        self, 
+        source: Source, 
+        session: aiohttp.ClientSession
+    ) -> Optional[Dict]:
+        """Обработать press API источник."""
+        try:
+            # Получаем список событий из presscorner API
+            api_url = f"{source.url}events?lang=en&type=IP,STATEMENT"
+            
+            async with session.get(
+                api_url,
+                headers={
+                    'Accept': 'application/json',
+                    'User-Agent': 'Annex4ComplianceBot/1.0'
+                },
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                resp.raise_for_status()
+                events = await resp.json()
+            
+            # Обрабатываем события
+            new_events = []
+            for event in events.get('events', []):
+                event_hash = hashlib.sha256(str(event).encode()).hexdigest()
+                if self._has_content_changed(source.id, event_hash):
+                    new_events.append(event)
+                    # Создаём алерт для нового события
+                    self._create_press_alert(source.id, event)
+            
+            # Логируем операцию
+            self._log_source_operation(
+                source.id, "success", 
+                hashlib.sha256(str(events).encode()).hexdigest(),
+                len(str(events)), None
+            )
+            
+            return {"type": "press_api", "source_id": source.id, "new_events": len(new_events)}
+            
+        except Exception as e:
+            self._log_source_operation(source.id, "error", None, None, str(e))
+            raise
+    
+    async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, query: str) -> Optional[Dict]:
+        """Выполнить SPARQL запрос."""
+        try:
+            async with session.post(
+                endpoint,
+                data={'query': query},
+                headers={
+                    'Accept': 'application/sparql-results+json',
+                    'User-Agent': 'Annex4ComplianceBot/1.0'
+                },
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                resp.raise_for_status()
+                result = await resp.json()
+                
+                # Парсим результат SPARQL
+                if 'results' in result and 'bindings' in result['results']:
+                    bindings = result['results']['bindings']
+                    if bindings:
+                        binding = bindings[0]
+                        return {
+                            'title': binding.get('title', {}).get('value', 'Unknown Title'),
+                            'date': binding.get('date', {}).get('value', ''),
+                            'version': binding.get('version', {}).get('value', '1.0'),
+                            'text': binding.get('text', {}).get('value', '')
+                        }
+                return None
+        except Exception as e:
+            logger.error(f"SPARQL query failed: {e}")
+            return None
+
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
         """Получить текст из HTML-страницы."""
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
@@ -412,6 +523,18 @@ class RegulationMonitorV2:
         )
         self.db.add(alert)
         self.db.commit()
+    
+    def _create_press_alert(self, source_id: str, event: Dict):
+        """Создать press API алерт."""
+        alert = ComplianceAlert(
+            document_id=None,
+            rule_id=None,
+            alert_type="press_release",
+            priority="high",
+            message=f"New press release from {source_id}: {event.get('title', 'Unknown')}"
+        )
+        self.db.add(alert)
+        self.db.commit()
 
     def group_sources_by_type(self, sources: List[Source]) -> Dict[str, List[Source]]:
         """Группировать источники по типу.
@@ -456,7 +579,7 @@ class RegulationMonitorV2:
                 continue
             
             # Парсим частоту обновления
-            freq_hours = self.parse_frequency(source.freq)
+            freq_hours = self._parse_frequency(source.freq)
             if freq_hours is None:
                 # Если не можем распарсить частоту, пропускаем
                 continue
@@ -468,7 +591,7 @@ class RegulationMonitorV2:
         
         return filtered
 
-    def parse_frequency(self, freq: str) -> Optional[int]:
+    def _parse_frequency(self, freq: str) -> Optional[int]:
         """Парсить частоту обновления в часах.
         
         Parameters

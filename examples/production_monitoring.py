@@ -39,46 +39,50 @@ async def setup_database():
 
 async def setup_alerts():
     """Настроить систему алертов."""
-    # Инициализируем эмиттер алертов
+    # Инициализируем эмиттер алертов (без внешних сервисов для демо)
     emitter = get_alert_emitter(
-        webhook_url="https://your-webhook-url.com/notify",  # Замените на ваш URL
-        kafka_bootstrap_servers="localhost:9092",  # Замените на ваш Kafka
+        webhook_url=None,  # Отключаем webhook для демо
+        kafka_bootstrap_servers=None,  # Отключаем Kafka для демо
         kafka_topic="rule-update"
     )
     
-    logger.info("Alert system initialized")
+    logger.info("Alert system initialized (demo mode)")
     return emitter
 
 
 async def run_monitoring_cycle():
     """Запустить цикл мониторинга."""
-    # Настраиваем базу данных
-    Session = await setup_database()
-    
-    # Настраиваем алерты
-    emitter = await setup_alerts()
-    
-    with Session() as session:
-        # Создаём монитор регуляторов
-        monitor = RegulationMonitorV2(session)
+    try:
+        # Настраиваем базу данных
+        Session = await setup_database()
         
-        logger.info("Starting regulatory monitoring cycle...")
+        # Настраиваем алерты
+        emitter = await setup_alerts()
         
-        # Обновляем все источники асинхронно
-        stats = await monitor.update_all()
-        
-        logger.info(f"Monitoring cycle completed: {stats}")
-        
-        # Проверяем новые алерты
-        from annex4parser.models import ComplianceAlert
-        new_alerts = session.query(ComplianceAlert).filter_by(
-            resolved_at=None
-        ).order_by(ComplianceAlert.created_at.desc()).limit(10).all()
-        
-        for alert in new_alerts:
-            logger.info(f"New alert: {alert.message} (Priority: {alert.priority})")
-        
-        return stats
+        with Session() as session:
+            # Создаём монитор регуляторов
+            monitor = RegulationMonitorV2(session)
+            
+            logger.info("Starting regulatory monitoring cycle...")
+            
+            # Обновляем все источники асинхронно
+            stats = await monitor.update_all()
+            
+            logger.info(f"Monitoring cycle completed: {stats}")
+            
+            # Проверяем новые алерты
+            from annex4parser.models import ComplianceAlert
+            new_alerts = session.query(ComplianceAlert).filter_by(
+                resolved_at=None
+            ).order_by(ComplianceAlert.created_at.desc()).limit(10).all()
+            
+            for alert in new_alerts:
+                logger.info(f"New alert: {alert.message} (Priority: {alert.priority})")
+            
+            return stats
+    except Exception as e:
+        logger.error(f"Monitoring cycle failed: {e}")
+        return {"error": str(e)}
 
 
 async def test_legal_diff():
@@ -128,10 +132,10 @@ async def test_eli_client():
             logger.info(f"Version: {result['version']}")
             logger.info(f"Text length: {len(result['text'])} characters")
         else:
-            logger.warning("No regulation found")
+            logger.warning("No regulation found (this is expected in demo mode)")
             
     except Exception as e:
-        logger.error(f"ELI client test failed: {e}")
+        logger.warning(f"ELI client test failed (expected in demo mode): {e}")
 
 
 async def test_rss_monitoring():
@@ -153,7 +157,7 @@ async def test_rss_monitoring():
             logger.info("-" * 50)
             
     except Exception as e:
-        logger.error(f"RSS monitoring test failed: {e}")
+        logger.warning(f"RSS monitoring test failed (expected in demo mode): {e}")
 
 
 async def main():
@@ -161,16 +165,16 @@ async def main():
     print("🚀 Starting Annex4Parser Production Monitoring Demo")
     print("=" * 60)
     
-    # Тестируем ELI клиент
+    # Тестируем юридический diff
+    await test_legal_diff()
+    print()
+    
+    # Тестируем ELI клиент (может не работать без интернета)
     await test_eli_client()
     print()
     
-    # Тестируем RSS мониторинг
+    # Тестируем RSS мониторинг (может не работать без интернета)
     await test_rss_monitoring()
-    print()
-    
-    # Тестируем юридический diff
-    await test_legal_diff()
     print()
     
     # Запускаем полный цикл мониторинга

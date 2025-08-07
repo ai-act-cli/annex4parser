@@ -118,6 +118,15 @@ class RSSMonitor:
             
         return new_entries
 
+    def check_new_entries(self, entries: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
+        """Вернуть только новые элементы (по хешу), обновляя seen_hashes."""
+        new_entries = []
+        for link, content_hash, title in entries:
+            if content_hash not in self.seen_hashes:
+                new_entries.append((link, content_hash, title))
+                self.seen_hashes.add(content_hash)
+        return new_entries
+
 
 # Примеры популярных регуляторных RSS-фидов
 REGULATORY_RSS_FEEDS = {
