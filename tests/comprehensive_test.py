@@ -69,7 +69,7 @@ def test_keyword_matching():
     print(f"\nKeyword matching: {passed}/{len(test_cases)} tests passed")
     assert passed > 0, f"Only {passed}/{len(test_cases)} keyword matching tests passed"
 
-def test_semantic_matching(db_session, test_regulation):
+def test_semantic_matching(test_db, test_regulation):
     """Test semantic matching with real content"""
     print("\n=== Testing Semantic Matching ===")
     
@@ -95,7 +95,7 @@ def test_semantic_matching(db_session, test_regulation):
     passed = 0
     for i, case in enumerate(test_cases, 1):
         try:
-            matches = semantic_match_rules(db_session, case['text'], threshold=0.1)
+            matches = semantic_match_rules(test_db, case['text'], threshold=0.1)
             found = list(matches.keys())
             expected = case['expected_sections']
             
@@ -115,7 +115,7 @@ def test_semantic_matching(db_session, test_regulation):
     print(f"\nSemantic matching: {passed}/{len(test_cases)} tests passed")
     assert passed > 0, f"Only {passed}/{len(test_cases)} semantic matching tests passed"
 
-def test_combined_matching(db_session, test_regulation):
+def test_combined_matching(test_db, test_regulation):
     """Test combined keyword and semantic matching"""
     print("\n=== Testing Combined Matching ===")
     
@@ -133,7 +133,7 @@ def test_combined_matching(db_session, test_regulation):
     passed = 0
     for i, case in enumerate(test_cases, 1):
         try:
-            matches = combined_match_rules(db_session, case['text'])
+            matches = combined_match_rules(test_db, case['text'])
             found = list(matches.keys())
             expected = case['expected_sections']
             
@@ -153,7 +153,7 @@ def test_combined_matching(db_session, test_regulation):
     print(f"\nCombined matching: {passed}/{len(test_cases)} tests passed")
     assert passed > 0, f"Only {passed}/{len(test_cases)} combined matching tests passed"
 
-def test_document_ingestion(db_session, test_regulation):
+def test_document_ingestion(test_db, test_regulation):
     """Test document ingestion with real content"""
     print("\n=== Testing Document Ingestion ===")
     
@@ -181,7 +181,7 @@ def test_document_ingestion(db_session, test_regulation):
             temp_file.close()
 
             # Ingest document
-            doc_record = ingest_document(Path(temp_file.name), db_session)
+            doc_record = ingest_document(Path(temp_file.name), test_db)
             mappings = doc_record.mappings
 
             # Cleanup
@@ -205,13 +205,13 @@ def test_document_ingestion(db_session, test_regulation):
     print(f"\nDocument ingestion: {passed}/{len(test_documents)} tests passed")
     assert passed > 0, f"Only {passed}/{len(test_documents)} document ingestion tests passed"
 
-def test_regulation_monitoring(db_session, test_regulation):
+def test_regulation_monitoring(test_db, test_regulation):
     """Test regulation monitoring functionality"""
     print("\n=== Testing Regulation Monitoring ===")
     
     try:
         # Create monitor
-        monitor = RegulationMonitor(db_session)
+        monitor = RegulationMonitor(test_db)
         
         # Test that monitor can be created and has expected methods
         assert hasattr(monitor, 'update'), "Monitor should have update method"
@@ -238,8 +238,8 @@ def test_regulation_monitoring(db_session, test_regulation):
             source_url='https://example.com/test',
             status='active'
         )
-        db_session.add(reg)
-        db_session.commit()
+        test_db.add(reg)
+        test_db.commit()
         
         print("✓ Can create new regulations")
         

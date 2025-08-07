@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+    <channel>
+        <title>EU AI Act Updates</title>
+        <link>https://ec.europa.eu/info/feed/ai-act</link>
+        <description>Latest updates on EU AI Act implementation</description>
+        <language>en</language>
+        <lastBuildDate>Mon, 15 Jan 2024 10:00:00 GMT</lastBuildDate>
+        
+        <item>
+            <title>Updated Guidelines for AI Act Implementation</title>
+            <link>https://ec.europa.eu/info/guidelines-ai-act</link>
+            <guid>https://ec.europa.eu/info/guidelines-ai-act</guid>
+            <pubDate>Mon, 15 Jan 2024 10:00:00 GMT</pubDate>
+            <description>
+                Minor updates to the implementation guidelines for the EU AI Act. 
+                Clarifications added regarding data quality requirements and documentation standards.
+            </description>
+            <category>Guidelines</category>
+        </item>
+        
+        <item>
+            <title>Technical Specifications Update</title>
+            <link>https://ec.europa.eu/info/tech-specs-ai-act</link>
+            <guid>https://ec.europa.eu/info/tech-specs-ai-act</guid>
+            <pubDate>Mon, 15 Jan 2024 09:30:00 GMT</pubDate>
+            <description>
+                Updated technical specifications for AI system compliance assessment.
+                Minor changes to testing procedures and validation criteria.
+            </description>
+            <category>Technical</category>
+        </item>
+    </channel>
+</rss>

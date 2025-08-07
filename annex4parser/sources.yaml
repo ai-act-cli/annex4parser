@@ -1,0 +1,73 @@
+# sources.yaml
+# Configuration of regulatory information sources for production-grade monitoring
+
+sources:
+  # --- SPARQL ---
+  - id: celex_consolidated
+    type: eli_sparql
+    celex_id: "32024R1689"
+    url: "https://publications.europa.eu/webapi/rdf/sparql"
+    sparql: "file:queries/ai_act_consolidated.rq"
+    freq: "6h"
+    description: "EU AI Act consolidated version"
+    
+  - id: ai_act_original
+    type: eli_sparql
+    celex_id: "32023R0988"
+    url: "https://publications.europa.eu/webapi/rdf/sparql"
+    sparql: "file:queries/ai_act_original.rq"
+    freq: "6h"
+    description: "EU AI Act original regulation"
+    
+  # --- RSS ---
+  - id: eurlex_latest_rss
+    type: rss
+    url: "https://eur-lex.europa.eu/legal-content/EN/RSS/?type=latestLegislation"
+    freq: "instant"
+    description: "EUR-Lex latest legislation RSS"
+    
+  - id: ep_plenary
+    type: rss
+    url: "https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml"
+    freq: "12h"
+    description: "European Parliament plenary sessions"
+    
+  # --- Presscorner заменили на REST ---
+  - id: ec_press_pdf
+    type: press_api
+    url: "https://ec.europa.eu/commission/presscorner/api/"
+    freq: "6h"
+    description: "European Commission press releases (REST API)"
+    
+  # --- HTML fallback (без изменений) ---
+  - id: ai_act_html
+    type: html
+    url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32023R0988"
+    freq: "24h"
+    description: "EU AI Act HTML version"
+
+# Monitoring settings
+monitoring:
+  # Check intervals by source types
+  intervals:
+    instant: 300    # 5 minutes for RSS
+    rss: 3600      # 1 hour for RSS
+    eli_sparql: 21600  # 6 hours for ELI
+    html: 86400    # 24 hours for HTML
+    press_api: 21600  # 6 hours for press API
+    
+  # Retry settings
+  retry:
+    max_attempts: 5
+    initial_wait: 10  # Увеличено с 5 до 10 секунд
+    max_wait: 300
+    jitter: true
+    
+  # User-Agent settings
+  user_agent: "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+  
+  # Caching settings
+  cache:
+    enabled: true
+    ttl: 3600  # 1 hour
+    max_size: 1000  # maximum number of cached entries
