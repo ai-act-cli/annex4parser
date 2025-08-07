@@ -56,7 +56,7 @@ class TestAlertEmitter:
         assert emitter.kafka_topic == "rule-update"
         assert emitter.producer is None
 
-    def test_emit_rule_changed_webhook_only(self, mock_session):
+    def test_emit_rule_changed_webhook_only(self):
         """Тест отправки алерта об изменении правила через webhook"""
         emitter = AlertEmitter(webhook_url="https://example.com/webhook")
         
@@ -109,7 +109,7 @@ class TestAlertEmitter:
         assert payload["section_code"] == "Article1.1"
         assert payload["change_type"] == "update"
 
-    def test_emit_rule_changed_both_channels(self, mock_session, mock_kafka_producer):
+    def test_emit_rule_changed_both_channels(self, mock_kafka_producer):
         """Тест отправки алерта через оба канала"""
         with patch('annex4parser.alerts.webhook.KafkaProducer') as mock_producer_class:
             mock_producer_class.return_value = mock_kafka_producer
@@ -187,7 +187,7 @@ class TestAlertEmitter:
         assert payload["rules_count"] == 15
         assert payload["type"] == "regulation_update"
 
-    def test_send_webhook_success(self, mock_session):
+    def test_send_webhook_success(self):
         """Тест успешной отправки webhook"""
         emitter = AlertEmitter(webhook_url="https://example.com/webhook")
 
@@ -205,7 +205,7 @@ class TestAlertEmitter:
             # Проверяем, что _send_webhook был вызван
             mock_send_webhook.assert_called_once()
 
-    def test_send_webhook_error(self, mock_session):
+    def test_send_webhook_error(self):
         """Тест ошибки при отправке webhook"""
         emitter = AlertEmitter(webhook_url="https://example.com/webhook")
         
@@ -363,13 +363,14 @@ class TestAlertErrorHandling:
         # Проверяем, что попытка отправки была
         mock_producer.send.assert_called_once()
 
-    def test_webhook_network_error(self, mock_session):
+    def test_webhook_network_error(self):
         """Тест сетевой ошибки webhook"""
         emitter = AlertEmitter(webhook_url="https://example.com/webhook")
         
         with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session_class.return_value = mock_session
+            mock_session = Mock()
             mock_session.post = AsyncMock(side_effect=Exception("Network error"))
+            mock_session_class.return_value = mock_session
             
             # Не должно вызывать исключение
             emitter.emit_rule_changed("test_rule", "high", "Test Reg", "Article1")

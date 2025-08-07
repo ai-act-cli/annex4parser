@@ -77,15 +77,6 @@ def sample_sources():
 
 
 @pytest.fixture
-def mock_session():
-    """Mock aiohttp session"""
-    session = AsyncMock(spec=aiohttp.ClientSession)
-    session.get = AsyncMock()
-    session.post = AsyncMock()
-    return session
-
-
-@pytest.fixture
 def mock_kafka_producer():
     """Mock Kafka producer"""
     producer = Mock()

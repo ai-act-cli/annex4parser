@@ -54,7 +54,7 @@ def mock_eli_response(title: str = "Test Regulation", content: str = "Test conte
             "bindings": [
                 {
                     "title": {"value": title},
-                    "content": {"value": content},
+                    "text": {"value": content},
                     "date": {"value": "2024-01-15"},
                     "celex": {"value": "32024R1689"}
                 }
@@ -143,12 +143,12 @@ def create_test_regulation_data(
                 "content": "This Regulation applies to..."
             },
             {
-                "section_code": "Article2.1", 
+                "section_code": "Article2.1",
                 "title": "Definitions",
                 "content": "For the purposes of this Regulation..."
             }
         ]
-    
+
     return {
         "name": name,
         "version": version,
