@@ -4,6 +4,7 @@ Pytest configuration and fixtures
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import pathlib
 from unittest.mock import Mock, AsyncMock
@@ -295,3 +296,11 @@ def test_regulation(test_db):
     
     test_db.commit()
     return regulation
+
+
+@pytest_asyncio.fixture
+async def mock_session():
+    """Mock aiohttp session для тестов"""
+    # Создаем реальную aiohttp сессию для работы с aioresponses
+    async with aiohttp.ClientSession() as session:
+        yield session

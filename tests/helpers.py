@@ -8,6 +8,28 @@ from aioresponses import aioresponses
 from annex4parser.models import Source, RegulationSourceLog
 
 
+"""
+Вспомогательные функции для тестов
+"""
+
+from urllib.parse import urlparse
+
+
+def mock_robots_txt(domain: str, content: str):
+    """
+    Создает mock robots.txt для домена
+    
+    Args:
+        domain: Домен
+        content: Содержимое robots.txt
+        
+    Returns:
+        Кортеж (robots_url, content)
+    """
+    robots_url = f"https://{domain}/robots.txt"
+    return robots_url, content
+
+
 def create_test_source(
     source_id: str,
     source_type: str = "eli_sparql",
@@ -202,11 +224,6 @@ def create_test_diff_data(
         "new_text": new_text,
         "section_code": section_code
     }
-
-
-def mock_robots_txt(domain: str = "example.com", content: str = "User-agent: *\nAllow: /"):
-    """Создает mock robots.txt"""
-    return f"https://{domain}/robots.txt", content
 
 
 def create_retry_test_data() -> List[Dict]:
