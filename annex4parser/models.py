@@ -71,6 +71,7 @@ class Document(Base):
     customer_id = Column(UUID(as_uuid=True))
     filename = Column(String(255))
     file_path = Column(Text)
+    extracted_text = Column(Text, nullable=True)
     ai_system_name = Column(String(255))
     document_type = Column(
         Enum("risk_assessment", "training_data", "validation", "incident_log", name="doc_type")
@@ -109,7 +110,14 @@ class ComplianceAlert(Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"))
     rule_id = Column(UUID(as_uuid=True), ForeignKey("rules.id"))
     alert_type = Column(
-        Enum("rule_updated", "document_outdated", "new_requirement", name="alert_type")
+        Enum(
+            "rule_updated",
+            "document_outdated",
+            "new_requirement",
+            "press_release",
+            "rss_update",
+            name="alert_type"
+        )
     )
     priority = Column(Enum("urgent", "high", "medium", "low", name="alert_priority"))
     message = Column(Text)

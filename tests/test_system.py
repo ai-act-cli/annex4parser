@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from annex4parser.models import Base, Regulation, Rule, Document
-from annex4parser.mapper.mapper import match_rules, KEYWORD_MAP
+from annex4parser.mapper.mapper import match_rules, DEFAULT_KEYWORD_MAP
 from annex4parser.mapper.semantic_mapper import semantic_match_rules
 from annex4parser.mapper.combined_mapper import combined_match_rules
 from annex4parser.document_ingestion import ingest_document

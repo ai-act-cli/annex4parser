@@ -66,7 +66,7 @@ def test_alert_and_doc_outdated(test_db, eli_rdf_v1, eli_rdf_v2, test_config_pat
     if alert:
         print(f"Alert priority: {alert.priority}")
         print(f"Alert message: {alert.message}")
-        assert alert.priority == "high"
+        assert alert.priority == "urgent"  # Updated: severity mapping changed to urgent for high/critical/major
     
     updated_doc = test_db.get(Document, doc.id)
     print(f"Document compliance status: {updated_doc.compliance_status}")

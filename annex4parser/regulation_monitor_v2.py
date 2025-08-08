@@ -477,11 +477,13 @@ class RegulationMonitorV2:
                 existing_rule.last_modified = datetime.utcnow()
                 
                 # Создаём алерт если есть значительные изменения
-                if change.severity in ["high", "critical"]:
+                if change.severity in ["high", "critical", "major"]:
+                    # map severity -> enum priority
+                    prio = "urgent" if change.severity in ["high", "critical", "major"] else "medium"
                     alert = ComplianceAlert(
                         rule_id=existing_rule.id,
                         alert_type="rule_updated",
-                        priority=change.severity,
+                        priority=prio,
                         message=f"Rule {rule_data['section_code']} updated: {change.change_type} - {analyzer.get_change_summary(change)}"
                     )
                     self.db.add(alert)
@@ -499,7 +501,17 @@ class RegulationMonitorV2:
                             doc.compliance_status = "outdated"
                             doc.last_modified = datetime.utcnow()
             else:
-                # Создаём новое правило
+                # Создаём новое правило (учтём parent_section_code, если есть)
+                parent_id = None
+                parent_code = rule_data.get("parent_section_code")
+                if parent_code:
+                    parent = (
+                        self.db.query(Rule)
+                        .filter_by(regulation_id=regulation.id, section_code=parent_code)
+                        .first()
+                    )
+                    parent_id = parent.id if parent else None
+
                 rule = Rule(
                     regulation_id=regulation.id,
                     section_code=rule_data["section_code"],
@@ -508,7 +520,8 @@ class RegulationMonitorV2:
                     risk_level="medium",
                     version=version,
                     effective_date=datetime.utcnow(),
-                    last_modified=datetime.utcnow()
+                    last_modified=datetime.utcnow(),
+                    parent_rule_id=parent_id
                 )
                 self.db.add(rule)
         
@@ -520,7 +533,7 @@ class RegulationMonitorV2:
         alert = ComplianceAlert(
             document_id=None,  # RSS алерты не привязаны к документам
             rule_id=None,
-            alert_type="new_requirement",
+            alert_type="rss_update",
             priority="medium",
             message=f"New regulatory update from {source_id}: {title} - {link}"
         )
