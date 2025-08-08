@@ -262,7 +262,7 @@ class TestRegulationMonitorV2:
         
         # Проверяем, что алерт создан в БД
         from annex4parser.models import ComplianceAlert
-        alerts = test_db.query(ComplianceAlert).filter_by(alert_type="new_requirement").all()
+        alerts = test_db.query(ComplianceAlert).filter_by(alert_type="rss_update").all()
         assert len(alerts) > 0
         assert "New Update" in alerts[0].message
 

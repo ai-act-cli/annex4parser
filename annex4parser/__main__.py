@@ -25,6 +25,7 @@ from typing import List
 from .regulation_monitor import RegulationMonitor
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from .models import Base
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -92,9 +93,7 @@ def main(argv: List[str] | None = None) -> int:
             print(f"Processed {reg.name} version {reg.version}.")
         elif args.cmd == "update-all":
             from .regulation_monitor_v2 import RegulationMonitorV2
-            from .models import Base
             # Создаем таблицы если их нет
-            Base.metadata.create_all(engine)
             monitor = RegulationMonitorV2(db=session, config_path=args.config)
             import asyncio
             stats = asyncio.run(monitor.update_all())
