@@ -1,0 +1,29 @@
+@prefix eli: <http://data.europa.eu/eli/ontology#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://data.europa.eu/eli/reg/2024/1689/oj> a eli:LegalResource ;
+    dcterms:title "EU AI Act - Updated Version" ;
+    dcterms:description "Regulation on Artificial Intelligence with Enhanced Safety Requirements" ;
+    dcterms:date "2024-02-15"^^xsd:date ;
+    eli:has_date_document "2024-02-15"^^xsd:date ;
+    eli:has_celex_id "32024R1689" .
+
+<http://data.europa.eu/eli/reg/2024/1689/art_1> a eli:Article ;
+    dcterms:title "Article 1 - Scope" ;
+    dcterms:description "This Regulation applies to AI systems placed on the market or put into service in the Union. Providers must ensure compliance with safety requirements and establish comprehensive risk management systems." ;
+    eli:has_article_number "1" ;
+    eli:belongs_to <http://data.europa.eu/eli/reg/2024/1689/oj> .
+
+<http://data.europa.eu/eli/reg/2024/1689/art_2> a eli:Article ;
+    dcterms:title "Article 2 - Definitions" ;
+    dcterms:description "For the purposes of this Regulation, 'AI system' means a system that uses machine learning, deep learning, or other computational methods to generate outputs that influence environments." ;
+    eli:has_article_number "2" ;
+    eli:belongs_to <http://data.europa.eu/eli/reg/2024/1689/oj> .
+
+<http://data.europa.eu/eli/reg/2024/1689/art_15> a eli:Article ;
+    dcterms:title "Article 15 - Risk Management" ;
+    dcterms:description "Providers shall establish a comprehensive risk management system that identifies, analyzes, and mitigates risks associated with AI systems. This system must be continuously updated and documented." ;
+    eli:has_article_number "15" ;
+    eli:belongs_to <http://data.europa.eu/eli/reg/2024/1689/oj> .

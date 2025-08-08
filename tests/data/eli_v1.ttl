@@ -1,0 +1,23 @@
+@prefix eli: <http://data.europa.eu/eli/ontology#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://data.europa.eu/eli/reg/2024/1689/oj> a eli:LegalResource ;
+    dcterms:title "EU AI Act" ;
+    dcterms:description "Regulation on Artificial Intelligence" ;
+    dcterms:date "2024-01-15"^^xsd:date ;
+    eli:has_date_document "2024-01-15"^^xsd:date ;
+    eli:has_celex_id "32024R1689" .
+
+<http://data.europa.eu/eli/reg/2024/1689/art_1> a eli:Article ;
+    dcterms:title "Article 1 - Scope" ;
+    dcterms:description "This Regulation applies to AI systems placed on the market or put into service in the Union." ;
+    eli:has_article_number "1" ;
+    eli:belongs_to <http://data.europa.eu/eli/reg/2024/1689/oj> .
+
+<http://data.europa.eu/eli/reg/2024/1689/art_2> a eli:Article ;
+    dcterms:title "Article 2 - Definitions" ;
+    dcterms:description "For the purposes of this Regulation, 'AI system' means a system that uses machine learning." ;
+    eli:has_article_number "2" ;
+    eli:belongs_to <http://data.europa.eu/eli/reg/2024/1689/oj> .

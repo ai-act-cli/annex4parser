@@ -7,3 +7,11 @@ python-docx
 scikit-learn
 pytest
 # sentence-transformers # optional BERT
+
+# Production-grade monitoring dependencies
+aiohttp
+tenacity
+feedparser
+pyyaml
+kafka-python
+python-dotenv

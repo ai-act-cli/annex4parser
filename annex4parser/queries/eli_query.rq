@@ -1,0 +1,14 @@
+PREFIX eli: <http://data.europa.eu/eli/ontology#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+
+SELECT ?title ?date ?version ?text WHERE {
+  ?work eli:is_realised_by/eli:date_publication ?date ;
+        eli:is_member_of /eli:id_local ?celex_id .
+  ?expr eli:is_embodiment_of ?work ;
+        eli:language <http://publications.europa.eu/resource/authority/language/ENG> ;
+        eli:version ?version ;
+        eli:content ?text .
+  OPTIONAL { ?work dcterms:title ?title }
+  FILTER(?celex_id = "32024R1689")
+}
+ORDER BY DESC(?date) LIMIT 1

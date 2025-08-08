@@ -75,6 +75,7 @@ def ingest_document(
         customer_id=customer_id,
         filename=file_path.name,
         file_path=str(file_path),
+        extracted_text=text,
         ai_system_name=ai_system_name,
         document_type=document_type,
     )

@@ -1,0 +1,9 @@
+PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
+SELECT ?title ?date ?version ?text WHERE {
+  ?work cdm:work_celex_number "32023R0988" .
+  ?work cdm:resource_legal_resource_has_title ?title .
+  ?work cdm:work_date_document ?date .
+  ?work cdm:work_version ?version .
+  OPTIONAL { ?work cdm:resource_legal_resource_has_extracted_text ?text }
+}
+LIMIT 1

@@ -15,13 +15,13 @@ def test_keyword_matching():
     print("=== Testing Keyword Matching ===")
     
     # Import here to avoid import issues
-    from annex4parser.mapper.mapper import match_rules, KEYWORD_MAP
+    from annex4parser.mapper.mapper import match_rules, DEFAULT_KEYWORD_MAP
     
     test_text = "This document covers risk management and documentation requirements."
     matches = match_rules(test_text)
     
     print(f"Test text: {test_text}")
-    print(f"Available keywords: {list(KEYWORD_MAP.keys())}")
+    print(f"Available keywords: {list(DEFAULT_KEYWORD_MAP.keys())}")
     print(f"Found matches: {matches}")
     
     # Check if expected matches are found

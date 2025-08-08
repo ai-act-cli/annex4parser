@@ -58,36 +58,104 @@ def fetch_regulation_text(url: str) -> str:
 
 
 def parse_rules(raw_text: str) -> List[dict]:
-    """Split a regulation text into individual rule entries.
+    """Parse Articles and Annexes into rule entries (with optional parents).
 
-    The parser searches for lines beginning with "Article " and
-    captures the code and optional title.  It returns a list of
-    dictionaries containing the ``section_code``, ``title`` and
-    ``content`` of each article.  For example, if the raw text
-    contains ``Article 15.3  Documentation requirements`` the
-    returned ``section_code`` will be ``"Article15.3"``.
+    Returns list of dicts with:
+      - section_code: e.g. "Article15.3", "AnnexIV", "AnnexIV.1", "AnnexIV.1.a"
+      - title: optional heading
+      - content: text body for the node
+      - parent_section_code: optional (for Annex children)
     """
     rules: List[dict] = []
-    # Split text on lines that start with "Article <number>"
-    blocks = re.split(r"\n(?=Article\s+\d)", raw_text)
-    for block in blocks:
-        block = block.strip()
-        if not block:
-            continue
-        lines = block.splitlines()
-        first_line = lines[0]
-        m = re.match(r"Article\s+([\d\.\(\)a-zA-Z]+)\s*-?\s*(.*)", first_line)
-        if not m:
-            continue
-        code = m.group(1).strip()
-        title = m.group(2).strip()
-        content = "\n".join(lines[1:]).strip()
-        rules.append({
-            "section_code": f"Article{code}",
-            "title": title,
-            "content": content,
-        })
+    text = raw_text.strip()
+
+    # ---- Сначала найдем все границы Articles и Annexes ----
+    boundaries = []
+    
+    # Находим все Articles
+    for match in re.finditer(r"(?m)^(\s*Article\s+\d+)", text):
+        boundaries.append(("Article", match.start(), match.group(1).strip()))
+    
+    # Находим все Annexes (case insensitive)
+    for match in re.finditer(r"(?i)(?m)^(\s*ANNEX\s+[IVXLC]+\b)", text):
+        boundaries.append(("Annex", match.start(), match.group(1).strip()))
+    
+    # Сортируем по позиции в тексте
+    boundaries.sort(key=lambda x: x[1])
+    
+    # ---- Обрабатываем каждый блок ----
+    for i, (block_type, start_pos, header) in enumerate(boundaries):
+        # Определяем конец блока
+        end_pos = boundaries[i + 1][1] if i + 1 < len(boundaries) else len(text)
+        block_text = text[start_pos:end_pos].strip()
+        
+        if block_type == "Article":
+            # Парсим Article
+            lines = block_text.splitlines()
+            m = re.match(r"Article\s+([\d\.\(\)a-zA-Z]+)\s*-?\s*(.*)", lines[0])
+            if m:
+                code = m.group(1).strip()
+                title = m.group(2).strip()
+                content = "\n".join(lines[1:]).strip()
+                rules.append({
+                    "section_code": f"Article{code}",
+                    "title": title,
+                    "content": content,
+                })
+        
+        elif block_type == "Annex":
+            # Парсим Annex
+            lines = block_text.splitlines()
+            header_line = lines[0]
+            m = re.match(r"(?i)ANNEX\s+([IVXLC]+)\b\s*-?\s*(.*)", header_line)
+            if m:
+                roman = m.group(1).upper()
+                annex_title = (m.group(2) or "").strip()
+                body = "\n".join(lines[1:]).strip()
+
+                parent_code = f"Annex{roman}"
+                rules.append({
+                    "section_code": parent_code,
+                    "title": annex_title,
+                    "content": body,
+                })
+
+                # Внутри Annex парсим подразделы
+                _parse_annex_subsections(rules, parent_code, body)
+
     return rules
+
+
+def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
+    """Парсит подразделы внутри Annex."""
+    # Разрежем по верхнему уровню "N." (в начале строки)
+    top_parts = re.split(r"(?m)^\s*(\d+)\.\s+", body)
+    # split даёт: ["intro", "1", "text1", "2", "text2", ...]
+    if len(top_parts) >= 3:
+        for i in range(1, len(top_parts), 2):
+            num = top_parts[i]
+            text_i = top_parts[i+1] if i+1 < len(top_parts) else ""
+            code_i = f"{parent_code}.{num}"
+            # Добавляем узел 1-го уровня
+            rules.append({
+                "section_code": code_i,
+                "title": "",
+                "content": text_i.strip(),
+                "parent_section_code": parent_code,
+            })
+            # Разрезаем подпункты (a), (b) ...
+            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", text_i)
+            if len(sub_parts) >= 3:
+                # ["prefix", "a", "text_a", "b", "text_b", ...]
+                for j in range(1, len(sub_parts), 2):
+                    letter = sub_parts[j]
+                    text_j = sub_parts[j+1] if j+1 < len(sub_parts) else ""
+                    rules.append({
+                        "section_code": f"{code_i}.{letter}",
+                        "title": "",
+                        "content": text_j.strip(),
+                        "parent_section_code": code_i,
+                    })
 
 
 class RegulationMonitor:
@@ -220,7 +288,8 @@ class RegulationMonitor:
         self.db.add(reg)
         self.db.flush()  # get ID for FK relations
 
-        # Parse and insert new rules
+        # Парсим и вставляем новые правила (с поддержкой parent_rule_id для Annex)
+        code_to_rule = {}
         for rule_data in parse_rules(raw_text):
             new_rule = Rule(
                 regulation_id=reg.id,
@@ -232,9 +301,20 @@ class RegulationMonitor:
                 effective_date=datetime.utcnow(),
                 last_modified=datetime.utcnow(),
             )
+            parent_code = rule_data.get("parent_section_code")
+            if parent_code:
+                parent = code_to_rule.get(parent_code) or (
+                    self.db.query(Rule)
+                    .filter_by(regulation_id=reg.id, section_code=parent_code)
+                    .first()
+                )
+                if parent:
+                    new_rule.parent_rule_id = parent.id
             self.db.add(new_rule)
+            self.db.flush()
+            code_to_rule[new_rule.section_code] = new_rule
 
-            # Compare against previous version of the same section
+            # Сравниваем с предыдущей версией той же секции
             if previous_reg:
                 old_rule = (
                     self.db.query(Rule)
@@ -242,7 +322,7 @@ class RegulationMonitor:
                     .first()
                 )
                 if old_rule and old_rule.content.strip() != rule_data["content"].strip():
-                    # Compute a unified diff between the old and new content
+                    # Вычисляем diff между старым и новым содержимым
                     diff = self.compute_diff(old_rule.content or "", rule_data["content"] or "")
                     severity = self.classify_change(diff)
                     mappings = self.db.query(DocumentRuleMapping).filter_by(rule_id=old_rule.id).all()
@@ -260,7 +340,7 @@ class RegulationMonitor:
                             message=f"{rule_data['section_code']} updated ({severity} change)",
                         )
                         self.db.add(alert)
-                        # mark document as outdated
+                        # помечаем документ как устаревший
                         doc = self.db.get(Document, mapping.document_id)
                         if doc:
                             doc.compliance_status = "outdated"

@@ -1,0 +1,53 @@
+# Пример кастомных ключевых слов → код секции
+# Этот файл позволяет настраивать маппинг ключевых слов без изменения кода
+
+# Annex IV - Technical Documentation
+technical documentation: AnnexIV
+documentation: AnnexIV
+post-market monitoring plan: AnnexIV.3
+conformity assessment: AnnexIV.1
+ce marking: AnnexIV.1.a
+technical file: AnnexIV.2
+system architecture: AnnexIV.2.a
+dataset description: AnnexIV.2.b
+
+# Risk Management
+risk management: Article9.2
+risk assessment: Article9.2
+risk analysis: Article9.2
+foreseeable risks: Article9.2
+risk mitigation: Article9.2
+
+# Record Keeping
+record keeping: Article15.4
+audit trail: Article15.4
+system logs: Article15.4
+event logging: Article15.4
+
+# Human Oversight
+human oversight: Article17.1
+human machine interface: Article17.1
+human control: Article17.1
+meaningful human control: Article17.1
+
+# Data Governance
+data governance: Article10.1
+training data: Article10.1
+data quality: Article10.1
+representative data: Article10.1
+
+# Accuracy and Robustness
+accuracy: Article16.1
+robustness: Article16.1
+cybersecurity: Article16.1
+resilience: Article16.1
+
+# Transparency
+transparency: Article18.1
+explainability: Article18.1
+interpretability: Article18.1
+
+# Quality Management
+quality management: Article19.1
+quality assurance: Article19.1
+quality control: Article19.1

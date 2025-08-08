@@ -25,54 +25,79 @@ from typing import List
 from .regulation_monitor import RegulationMonitor
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from .models import Base
 
 
 def main(argv: List[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Update a regulation in the compliance database.")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(description="Annex4Parser CLI")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # ---- single update (V1) ----
+    p1 = sub.add_parser("update-single", help="Fetch one regulation via URL")
+    p1.add_argument(
         "--name",
         required=True,
-        help="Human‑readable name of the regulation, e.g. 'EU AI Act'",
+        help="Human-readable name of the regulation, e.g. 'EU AI Act'",
     )
-    parser.add_argument(
+    p1.add_argument(
         "--version",
         required=True,
         help="Version identifier for the regulation, e.g. '2025.08.01'",
     )
-    parser.add_argument(
+    p1.add_argument(
         "--url",
         required=True,
         help="URL from which to fetch the regulation text",
     )
-    parser.add_argument(
+    p1.add_argument(
         "--db-url",
         default="sqlite:///compliance.db",
         help="SQLAlchemy database URL (default: sqlite:///compliance.db)",
     )
-    parser.add_argument(
+    p1.add_argument(
         "--cache-dir",
         type=str,
         default=None,
         help="Directory to store cached versions of sources (defaults to ~/.annex4parser/cache)",
     )
-    parser.add_argument(
+    p1.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
+
+    # ---- update-all (V2) ----
+    p2 = sub.add_parser("update-all", help="Update from sources.yaml via RegulationMonitorV2")
+    p2.add_argument("--db-url", default="sqlite:///compliance.db")
+    p2.add_argument("--config", default=None, help="Path to sources.yaml (optional)")
+    p2.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging",
+    )
+    
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(message)s")
 
-    # Create a database session
+    # Create DB + tables
     engine = create_engine(args.db_url)
+    Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
 
     try:
-        monitor = RegulationMonitor(db=session, cache_dir=args.cache_dir)
-        reg = monitor.update(name=args.name, version=args.version, url=args.url)
-        print(f"Processed {reg.name} version {reg.version}.")
+        if args.cmd == "update-single":
+            monitor = RegulationMonitor(db=session, cache_dir=args.cache_dir)
+            reg = monitor.update(name=args.name, version=args.version, url=args.url)
+            print(f"Processed {reg.name} version {reg.version}.")
+        elif args.cmd == "update-all":
+            from .regulation_monitor_v2 import RegulationMonitorV2
+            # Создаем таблицы если их нет
+            monitor = RegulationMonitorV2(db=session, config_path=args.config)
+            import asyncio
+            stats = asyncio.run(monitor.update_all())
+            print(f"Update-all done: {stats}")
     finally:
         session.close()
     return 0

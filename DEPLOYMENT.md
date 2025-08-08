@@ -1,562 +1,460 @@
-# Annex4Parser Deployment Guide
+# Production Deployment Guide
 
-This guide will help you deploy Annex4Parser in production for analyzing document compliance with EU AI Act requirements.
+Руководство по развертыванию Annex4Parser в production-среде с поддержкой всех новых компонентов.
 
-## 🏗️ System Architecture
+## 🏗️ Архитектура
 
-### Components
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   RSS Sources   │    │  ELI SPARQL     │    │  HTML Sources   │
+│   (EUR-Lex,     │    │  (EUR-Lex API)  │    │  (Fallback)     │
+│    EP, EC)      │    │                 │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │ Regulation      │
+                    │ Monitor V2      │
+                    │ (Async)         │
+                    └─────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │ Legal Diff      │
+                    │ Analyzer        │
+                    └─────────────────┘
+                                 │
+         ┌───────────────────────┼───────────────────────┐
+         │                       │                       │
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Kafka Topic   │    │   Webhook       │    │   Database      │
+│   rule-update   │    │   Notifications │    │   (PostgreSQL)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
 
-- **Document Ingestion** - Document loading and parsing
-- **Compliance Mapping** - Mapping with regulatory rules
-- **Regulation Monitor** - Monitoring regulatory updates
-- **Database Layer** - SQLAlchemy + SQLite/PostgreSQL
-- **API Layer** - FastAPI (optional)
+## 📋 Требования
 
-### Infrastructure Requirements
+### Системные требования
+- Python 3.8+
+- PostgreSQL 12+
+- Kafka 2.8+ (опционально)
+- Redis (для кеширования, опционально)
 
-- **CPU**: 2+ cores
-- **RAM**: 4GB+ (8GB for large documents)
-- **Storage**: 10GB+ for documents and database
-- **Network**: Stable internet connection
-
-## 🚀 Deployment
-
-### Option 1: Local Deployment
-
-#### 1. Environment Setup
-
+### Зависимости
 ```bash
-# Clone repository
-git clone <repository-url>
-cd a4p
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate     # Windows
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-#### 2. Database Setup
+## 🚀 Быстрый старт
 
-```python
-# Create production database
-from sqlalchemy import create_engine
-from annex4parser.models import Base
+### 1. Настройка базы данных
 
-# SQLite (for small projects)
-engine = create_engine("sqlite:///production_compliance.db")
+```bash
+# Создаём PostgreSQL базу данных
+createdb compliance_production
 
-# PostgreSQL (for large projects)
-# engine = create_engine("postgresql://user:pass@localhost/compliance_db")
-
-Base.metadata.create_all(engine)
+# Применяем миграции
+python -m alembic upgrade head
 ```
 
-#### 3. Load Regulations
+### 2. Настройка конфигурации
+
+Создайте файл `.env`:
+
+```env
+# Database
+DATABASE_URL=postgresql://user:password@localhost/compliance_production
+
+# Kafka (опционально)
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_TOPIC=rule-update
+
+# Webhook (опционально)
+WEBHOOK_URL=https://your-domain.com/webhook
+
+# Monitoring
+LOG_LEVEL=INFO
+CACHE_TTL=3600
+```
+
+### 3. Запуск мониторинга
 
 ```python
-from annex4parser.regulation_monitor import RegulationMonitor
+import asyncio
+from annex4parser.regulation_monitor_v2 import update_all_regulations
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+# Подключаемся к БД
+engine = create_engine("postgresql://user:password@localhost/compliance_production")
 Session = sessionmaker(bind=engine)
 
-with Session() as session:
-    monitor = RegulationMonitor(session)
-    
-    # Load EU AI Act
-    regulation = monitor.update(
-        name="EU AI Act",
-        version="2024.1",
-        url="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32023R0988"
-    )
-    
-    print(f"Loaded {len(regulation.rules)} rules")
+async def run_monitoring():
+    with Session() as session:
+        stats = await update_all_regulations(session)
+        print(f"Monitoring completed: {stats}")
+
+# Запускаем
+asyncio.run(run_monitoring())
 ```
 
-### Option 2: Docker Deployment
+## 🔧 Production настройки
 
-#### 1. Create Dockerfile
+### 1. Docker Compose
 
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy project files
-COPY requirements.txt .
-COPY annex4parser/ ./annex4parser/
-COPY tests/ ./tests/
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Create documents directory
-RUN mkdir -p /app/documents
-
-# Create user
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
-
-# Start application
-CMD ["python", "-m", "annex4parser"]
-```
-
-#### 2. Create docker-compose.yml
+Создайте `docker-compose.yml`:
 
 ```yaml
 version: '3.8'
 
 services:
-  annex4parser:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./documents:/app/documents
-      - ./data:/app/data
-    environment:
-      - DATABASE_URL=sqlite:///data/compliance.db
-      - CACHE_DIR=/app/cache
-    restart: unless-stopped
-
-  # PostgreSQL (optional)
   postgres:
-    image: postgres:15
+    image: postgres:13
     environment:
-      POSTGRES_DB: compliance_db
-      POSTGRES_USER: annex4user
+      POSTGRES_DB: compliance_production
+      POSTGRES_USER: compliance_user
       POSTGRES_PASSWORD: secure_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
+    ports:
+      - "5432:5432"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.0.0
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+
+  annex4parser:
+    build: .
+    depends_on:
+      - postgres
+      - kafka
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://compliance_user:secure_password@postgres/compliance_production
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./logs:/app/logs
+      - ./cache:/app/cache
 
 volumes:
   postgres_data:
 ```
 
-#### 3. Launch
+### 2. Dockerfile
 
-```bash
-# Build and start
-docker-compose up -d
+Создайте `Dockerfile`:
 
-# Check logs
-docker-compose logs -f annex4parser
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Устанавливаем зависимости
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем код
+COPY annex4parser/ ./annex4parser/
+COPY examples/ ./examples/
+COPY tests/ ./tests/
+
+# Создаём пользователя
+RUN useradd -m -u 1000 annex4parser
+USER annex4parser
+
+# Запускаем мониторинг
+CMD ["python", "-m", "annex4parser.regulation_monitor_v2"]
 ```
 
-### Option 3: Cloud Deployment
+### 3. Systemd Service
 
-#### AWS EC2
+Создайте `/etc/systemd/system/annex4parser.service`:
 
-```bash
-# Connect to server
-ssh -i key.pem ubuntu@your-server-ip
+```ini
+[Unit]
+Description=Annex4Parser Regulatory Monitor
+After=network.target postgresql.service
 
-# Install dependencies
-sudo apt update
-sudo apt install python3 python3-pip python3-venv git
+[Service]
+Type=simple
+User=annex4parser
+WorkingDirectory=/opt/annex4parser
+Environment=PATH=/opt/annex4parser/venv/bin
+ExecStart=/opt/annex4parser/venv/bin/python -m annex4parser.regulation_monitor_v2
+Restart=always
+RestartSec=10
 
-# Clone project
-git clone <repository-url>
-cd a4p
-
-# Setup environment
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Run as service
-sudo systemctl enable annex4parser
-sudo systemctl start annex4parser
+[Install]
+WantedBy=multi-user.target
 ```
 
-#### Google Cloud Run
+## 📊 Мониторинг и логирование
 
-```yaml
-# cloudbuild.yaml
-steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/annex4parser', '.']
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/annex4parser']
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args:
-      - 'run'
-      - 'deploy'
-      - 'annex4parser'
-      - '--image'
-      - 'gcr.io/$PROJECT_ID/annex4parser'
-      - '--region'
-      - 'us-central1'
-      - '--platform'
-      - 'managed'
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-```bash
-# Database
-DATABASE_URL=sqlite:///production_compliance.db
-# or
-DATABASE_URL=postgresql://user:pass@localhost/compliance_db
-
-# Caching
-CACHE_DIR=/app/cache
-CACHE_TTL=3600
-
-# Logging
-LOG_LEVEL=INFO
-LOG_FILE=/app/logs/annex4parser.log
-
-# Security
-SECRET_KEY=your-secret-key
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Performance
-MAX_WORKERS=4
-CHUNK_SIZE=1000
-```
-
-### Configuration File
-
-```python
-# config.py
-import os
-from pathlib import Path
-
-class Config:
-    # Database
-    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///compliance.db')
-    
-    # Caching
-    CACHE_DIR = Path(os.getenv('CACHE_DIR', './cache'))
-    CACHE_TTL = int(os.getenv('CACHE_TTL', 3600))
-    
-    # Logging
-    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-    LOG_FILE = os.getenv('LOG_FILE', './logs/annex4parser.log')
-    
-    # Performance
-    MAX_WORKERS = int(os.getenv('MAX_WORKERS', 4))
-    CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', 1000))
-    
-    # Security
-    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
-    ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost').split(',')
-```
-
-## 📊 Monitoring
-
-### Logging
+### 1. Логирование
 
 ```python
 import logging
 from logging.handlers import RotatingFileHandler
 
-# Setup logging
-def setup_logging():
-    logger = logging.getLogger('annex4parser')
-    logger.setLevel(logging.INFO)
-    
-    # File handler
-    file_handler = RotatingFileHandler(
-        'logs/annex4parser.log',
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    file_handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s: %(message)s'
-    ))
-    logger.addHandler(file_handler)
-    
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(
-        '%(levelname)s: %(message)s'
-    ))
-    logger.addHandler(console_handler)
-    
-    return logger
+# Настраиваем логирование
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler('/var/log/annex4parser/app.log', maxBytes=10*1024*1024, backupCount=5),
+        logging.StreamHandler()
+    ]
+)
 ```
 
-### Metrics
+### 2. Метрики
 
 ```python
-import time
-from functools import wraps
+from prometheus_client import Counter, Histogram, start_http_server
 
-def monitor_performance(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        execution_time = time.time() - start_time
-        
-        # Log metrics
-        logger.info(f"{func.__name__} executed in {execution_time:.2f}s")
-        
-        return result
-    return wrapper
+# Метрики
+REGULATION_UPDATES = Counter('regulation_updates_total', 'Total regulation updates')
+RSS_ENTRIES = Counter('rss_entries_total', 'Total RSS entries processed')
+ELI_REQUESTS = Counter('eli_requests_total', 'Total ELI SPARQL requests')
+PROCESSING_TIME = Histogram('processing_time_seconds', 'Time spent processing updates')
 
-# Usage
-@monitor_performance
-def analyze_document(file_path, session):
-    # Document analysis
-    pass
+# Запускаем HTTP сервер для метрик
+start_http_server(8000)
 ```
 
-### Health Check
+### 3. Health Checks
 
 ```python
+from flask import Flask, jsonify
+import psycopg2
+from datetime import datetime
+import json
+
+app = Flask(__name__)
+
+# Assuming DATABASE_URL is defined elsewhere or passed as an environment variable
+# For this example, we'll use a placeholder.
+DATABASE_URL = "postgresql://user:password@localhost/compliance_production"
+SECRET_KEY = "your-secret-key" # Placeholder for SECRET_KEY
+
+@app.route('/health')
 def health_check():
-    """System health check"""
     try:
-        # Database check
-        session = Session()
-        rules_count = session.query(Rule).count()
-        session.close()
+        # Проверяем подключение к БД
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.close()
         
-        # Cache check
-        cache_dir = Path("./cache")
-        cache_accessible = cache_dir.exists() and cache_dir.is_dir()
-        
-        return {
+        return jsonify({
             "status": "healthy",
             "database": "connected",
-            "rules_count": rules_count,
-            "cache": "accessible" if cache_accessible else "error"
-        }
+            "timestamp": datetime.utcnow().isoformat()
+        })
     except Exception as e:
-        return {
+        return jsonify({
             "status": "unhealthy",
             "error": str(e)
-        }
+        }), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
 ```
 
-## 🔒 Security
+## 🔒 Безопасность
 
-### Authentication
+### 1. Сетевая безопасность
+
+```bash
+# Firewall правила
+sudo ufw allow 5432/tcp  # PostgreSQL
+sudo ufw allow 9092/tcp  # Kafka
+sudo ufw allow 8080/tcp  # Health check
+sudo ufw deny 22/tcp      # Отключаем SSH
+```
+
+### 2. SSL/TLS
 
 ```python
-from functools import wraps
+# SSL конфигурация для PostgreSQL
+DATABASE_URL = "postgresql://user:password@localhost/compliance_production?sslmode=require"
+
+# SSL для Kafka
+KAFKA_SSL_CONFIG = {
+    'security_protocol': 'SSL',
+    'ssl_cafile': '/path/to/ca.pem',
+    'ssl_certfile': '/path/to/cert.pem',
+    'ssl_keyfile': '/path/to/key.pem'
+}
+```
+
+### 3. Аутентификация
+
+```python
+# JWT токены для API
 import jwt
+from functools import wraps
+from flask import request, jsonify
 
 def require_auth(f):
     @wraps(f)
-    def decorated_function(*args, **kwargs):
+    def decorated(*args, **kwargs):
         token = request.headers.get('Authorization')
         if not token:
-            return {"error": "No token provided"}, 401
+            return jsonify({"error": "No token provided"}), 401
         
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
             request.user = payload
         except jwt.InvalidTokenError:
-            return {"error": "Invalid token"}, 401
+            return jsonify({"error": "Invalid token"}), 401
         
         return f(*args, **kwargs)
-    return decorated_function
+    return decorated
 ```
 
-### File Validation
+## 📈 Масштабирование
 
-```python
-import magic
-from pathlib import Path
-
-ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.doc'}
-ALLOWED_MIME_TYPES = {
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword'
-}
-
-def validate_file(file_path):
-    """Validate uploaded file"""
-    path = Path(file_path)
-    
-    # Extension check
-    if path.suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise ValueError(f"Unsupported file format: {path.suffix}")
-    
-    # MIME type check
-    mime_type = magic.from_file(str(path), mime=True)
-    if mime_type not in ALLOWED_MIME_TYPES:
-        raise ValueError(f"Unsupported MIME type: {mime_type}")
-    
-    # Size check (maximum 50MB)
-    if path.stat().st_size > 50 * 1024 * 1024:
-        raise ValueError("File too large (maximum 50MB)")
-    
-    return True
-```
-
-## 🚨 Backup
-
-### Automatic Backup
-
-```bash
-#!/bin/bash
-# backup.sh
-
-DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="/backups"
-DB_FILE="compliance.db"
-
-# Create database backup
-cp $DB_FILE $BACKUP_DIR/compliance_$DATE.db
-
-# Compress
-gzip $BACKUP_DIR/compliance_$DATE.db
-
-# Remove old backups (older than 30 days)
-find $BACKUP_DIR -name "compliance_*.db.gz" -mtime +30 -delete
-
-echo "Backup completed: compliance_$DATE.db.gz"
-```
-
-### Restore
-
-```bash
-#!/bin/bash
-# restore.sh
-
-BACKUP_FILE=$1
-DB_FILE="compliance.db"
-
-if [ -z "$BACKUP_FILE" ]; then
-    echo "Usage: ./restore.sh <backup_file>"
-    exit 1
-fi
-
-# Stop application
-systemctl stop annex4parser
-
-# Restore database
-gunzip -c $BACKUP_FILE > $DB_FILE
-
-# Start application
-systemctl start annex4parser
-
-echo "Restore completed from $BACKUP_FILE"
-```
-
-## 📈 Scaling
-
-### Horizontal Scaling
+### 1. Горизонтальное масштабирование
 
 ```yaml
 # docker-compose.scale.yml
-version: '3.8'
-
 services:
   annex4parser:
-    build: .
     deploy:
       replicas: 3
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres/compliance_db
-    depends_on:
-      - postgres
-      - redis
-
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: compliance_db
-      POSTGRES_USER: annex4user
-      POSTGRES_PASSWORD: secure_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-
-volumes:
-  postgres_data:
-  redis_data:
+      - INSTANCE_ID=${HOSTNAME}
 ```
 
-### Performance Optimization
+### 2. Load Balancing
+
+```nginx
+# nginx.conf
+upstream annex4parser {
+    server annex4parser1:8080;
+    server annex4parser2:8080;
+    server annex4parser3:8080;
+}
+
+server {
+    listen 80;
+    server_name your-domain.com;
+    
+    location / {
+        proxy_pass http://annex4parser;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+### 3. Кеширование
 
 ```python
-# Multi-threaded document processing
-from concurrent.futures import ThreadPoolExecutor
-import threading
+import redis
+from functools import lru_cache
 
-def process_documents_parallel(document_paths, session_factory, max_workers=4):
-    """Parallel document processing"""
+# Redis кеш
+REDIS_URL = "redis://localhost:6379/0" # Placeholder for REDIS_URL
+
+redis_client = redis.Redis.from_url(REDIS_URL)
+
+@lru_cache(maxsize=1000)
+def cached_regulation_fetch(celex_id: str):
+    # Проверяем кеш
+    cached = redis_client.get(f"regulation:{celex_id}")
+    if cached:
+        return json.loads(cached)
     
-    def process_single_document(doc_path):
-        session = session_factory()
-        try:
-            result = ingest_document(Path(doc_path), session)
-            return result
-        finally:
-            session.close()
+    # Фетчим из источника
+    # Assuming fetch_regulation_by_celex is defined elsewhere or will be added
+    # For this example, we'll just return a placeholder
+    result = {"celex_id": celex_id, "title": "Placeholder Regulation", "url": "https://example.com"}
     
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(process_single_document, path) 
-            for path in document_paths
-        ]
+    # Сохраняем в кеш
+    redis_client.setex(f"regulation:{celex_id}", 3600, json.dumps(result))
+    
+    return result
+```
+
+## 🚨 Troubleshooting
+
+### 1. Проблемы с подключением к БД
+
+```bash
+# Проверяем подключение
+psql -h localhost -U compliance_user -d compliance_production
+
+# Проверяем логи
+tail -f /var/log/postgresql/postgresql-13-main.log
+```
+
+### 2. Проблемы с Kafka
+
+```bash
+# Проверяем статус Kafka
+kafka-topics --bootstrap-server localhost:9092 --list
+
+# Проверяем сообщения
+kafka-console-consumer --bootstrap-server localhost:9092 --topic rule-update --from-beginning
+```
+
+### 3. Проблемы с мониторингом
+
+```python
+# Тестовый скрипт
+import asyncio
+from annex4parser.regulation_monitor_v2 import RegulationMonitorV2
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from annex4parser.models import Source # Assuming Source model is needed for this example
+
+# Подключаемся к БД
+engine = create_engine("postgresql://user:password@localhost/compliance_production")
+Session = sessionmaker(bind=engine)
+
+async def debug_monitoring():
+    with Session() as session:
+        monitor = RegulationMonitorV2(session)
         
-        results = [future.result() for future in futures]
-        return results
+        # Проверяем источники
+        sources = session.query(Source).all()
+        print(f"Active sources: {len(sources)}")
+        
+        # Тестируем один источник
+        if sources:
+            source = sources[0]
+            print(f"Testing source: {source.id}")
+            # ... тестирование
+
+asyncio.run(debug_monitoring())
 ```
 
-## 🔄 CI/CD
+## 📚 Дополнительные ресурсы
 
-### GitHub Actions
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy Annex4Parser
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-      - name: Run tests
-        run: |
-          python -m pytest tests/ -v
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Deploy to server
-        run: |
-          # Deployment commands
-          echo "Deploying to production..."
-```
+- [EUR-Lex API Documentation](https://eur-lex.europa.eu/eli-register/technical_information.html)
+- [Kafka Documentation](https://kafka.apache.org/documentation/)
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
+- [Prometheus Monitoring](https://prometheus.io/docs/)
 
 ---
 
-**System ready for production!** 🚀
+**Annex4Parser Production Deployment** - готов к работе! 🚀

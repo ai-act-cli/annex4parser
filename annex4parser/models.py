@@ -18,6 +18,8 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Boolean,
+    Integer,
+    JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -69,6 +71,7 @@ class Document(Base):
     customer_id = Column(UUID(as_uuid=True))
     filename = Column(String(255))
     file_path = Column(Text)
+    extracted_text = Column(Text, nullable=True)
     ai_system_name = Column(String(255))
     document_type = Column(
         Enum("risk_assessment", "training_data", "validation", "incident_log", name="doc_type")
@@ -107,10 +110,45 @@ class ComplianceAlert(Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"))
     rule_id = Column(UUID(as_uuid=True), ForeignKey("rules.id"))
     alert_type = Column(
-        Enum("rule_updated", "document_outdated", "new_requirement", name="alert_type")
+        Enum(
+            "rule_updated",
+            "document_outdated",
+            "new_requirement",
+            "press_release",
+            "rss_update",
+            name="alert_type"
+        )
     )
     priority = Column(Enum("urgent", "high", "medium", "low", name="alert_priority"))
     message = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
     assigned_to = Column(UUID(as_uuid=True), nullable=True)
+
+
+# Новые модели для production-grade мониторинга
+class Source(Base):
+    """Источники регуляторной информации."""
+    __tablename__ = "sources"
+    id = Column(String(50), primary_key=True)
+    url = Column(Text, nullable=False)
+    type = Column(Enum("eli_sparql", "rss", "html", "press_api", name="source_type"))
+    freq = Column(String(20))  # e.g. "6h", "instant", "12h"
+    active = Column(Boolean, default=True)
+    last_fetched = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    extra = Column(JSON, nullable=True)
+
+
+class RegulationSourceLog(Base):
+    """Логирование операций с источниками."""
+    __tablename__ = "reg_source_log"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    source_id = Column(String(50), ForeignKey("sources.id"))
+    status = Column(Enum("success", "error", name="log_status"))
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    content_hash = Column(String(64))  # SHA-256 хеш контента
+    response_time = Column(Float)  # время ответа в секундах
+    error_message = Column(Text, nullable=True)
+    bytes_downloaded = Column(Integer, nullable=True)
