@@ -49,7 +49,7 @@ class RegulationMonitorV2:
         
         # Инициализируем источники в БД
         self._init_sources()
-    
+
     def _init_sources(self):
         """Инициализировать источники в базе данных."""
         for source_config in self.config['sources']:
@@ -66,6 +66,45 @@ class RegulationMonitorV2:
         
         self.db.commit()
         logger.info(f"Initialized {len(self.config['sources'])} sources")
+
+    async def update_by_type(self, source_type: str) -> Dict[str, int]:
+        """Обновить активные источники указанного типа."""
+        active_sources = (
+            self.db.query(Source)
+            .filter_by(active=True, type=source_type)
+            .all()
+        )
+
+        tasks = []
+        async with aiohttp.ClientSession(headers={"User-Agent": UA}) as session:
+            for source in active_sources:
+                if source_type == "eli_sparql":
+                    tasks.append(self._process_eli_source(source, session))
+                elif source_type == "rss":
+                    tasks.append(self._process_rss_source(source, session))
+                elif source_type == "html":
+                    tasks.append(self._process_html_source(source, session))
+                elif source_type == "press_api":
+                    tasks.append(self._process_press_api_source(source, session))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        stats = {"type": source_type, "processed": 0, "errors": 0}
+        for result in results:
+            if isinstance(result, Exception):
+                stats["errors"] += 1
+                logger.error(f"Source processing error: {result}")
+            elif result:
+                stats["processed"] += 1
+        return stats
+
+    async def update_eli_sources(self) -> Dict[str, int]:
+        return await self.update_by_type("eli_sparql")
+
+    async def update_rss_sources(self) -> Dict[str, int]:
+        return await self.update_by_type("rss")
+
+    async def update_html_sources(self) -> Dict[str, int]:
+        return await self.update_by_type("html")
     
     async def update_all(self) -> Dict[str, int]:
         """Обновить все активные источники асинхронно.
