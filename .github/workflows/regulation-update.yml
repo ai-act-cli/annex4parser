@@ -10,11 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Database connection string
-      DB_URL: ${{ secrets.DB_URL }}
-      # API key for regulation monitor
-      REG_MONITOR_API_KEY: ${{ secrets.REG_MONITOR_API_KEY }}
-      # Region selection for regulation monitor
-      REG_MONITOR_REGION: ${{ secrets.REG_MONITOR_REGION }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -29,4 +25,4 @@ jobs:
           PY
       - name: Sync rules into database
         run: |
-          risk-detector sync_rules --db-url "$DB_URL" --dir rules/risk
+          risk-detector sync_rules --db-url "$DATABASE_URL" --dir rules/risk
