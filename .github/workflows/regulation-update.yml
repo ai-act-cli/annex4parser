@@ -22,4 +22,4 @@ jobs:
         run: python -m annex4parser update-all --db-url "$DATABASE_URL"
       - name: Sync rules into database
         run: |
-          risk-detector sync_rules --db-url "$DATABASE_URL" --dir rules/risk
+          risk-detector sync_rules --db-url "$DATABASE_URL"
