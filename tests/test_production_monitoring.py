@@ -36,7 +36,7 @@ def sample_sources():
         },
         {
             "id": "test_rss",
-            "url": "https://eur-lex.europa.eu/legal-content/EN/RSS/?type=latestLegislation",
+            "url": "https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml",
             "type": "rss",
             "freq": "instant"
         }
@@ -300,7 +300,7 @@ class TestAlertEmitter:
         
         # Эмитируем RSS алерт
         emitter.emit_rss_update(
-            source_id="eurlex_latest_rss",
+            source_id="ep_plenary",
             title="New Regulation",
             link="https://example.com"
         )
@@ -308,7 +308,7 @@ class TestAlertEmitter:
         # Проверяем, что сообщение отправлено
         mock_producer.send.assert_called_once()
         call_args = mock_producer.send.call_args
-        assert call_args[1]["key"] == "eurlex_latest_rss"
+        assert call_args[1]["key"] == "ep_plenary"
 
 
 @pytest.mark.asyncio

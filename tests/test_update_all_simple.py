@@ -12,7 +12,7 @@ async def test_update_all_multisource(test_db, eli_rdf_v1, rss_xml_minor, test_c
     """Тест одновременной обработки ELI + RSS"""
     srcs = [
         Source(id="eli", url="https://eur-lex.europa.eu/eli-register?uri=eli%3a%2f%2flaw%2fregulation%2f2024%2f1689", type="eli_sparql", active=True, extra={"celex_id": "32024R1689"}),
-        Source(id="rss", url="https://eur-lex.europa.eu/legal-content/EN/RSS/?type=latestLegislation", type="rss", active=True)
+        Source(id="rss", url="https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml", type="rss", active=True)
     ]
     
     # Добавляем источники в БД

@@ -230,7 +230,7 @@ if result:
 from annex4parser.rss_listener import fetch_rss_feed, RSSMonitor
 
 # Получаем RSS-фид
-entries = await fetch_rss_feed("https://eur-lex.europa.eu/legal-content/EN/RSS/?type=latestLegislation")
+entries = await fetch_rss_feed("https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml")
 
 # Мониторим изменения
 monitor = RSSMonitor()
@@ -454,10 +454,10 @@ sources:
     freq: "6h"
     celex_id: "32024R1689"
     
-  - id: eurlex_latest_rss
-    url: "https://eur-lex.europa.eu/legal-content/EN/RSS/?type=latestLegislation"
+  - id: ep_plenary
+    url: "https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml"
     type: rss
-    freq: "instant"
+    freq: "12h"
 ```
 
 ### Cache configuration

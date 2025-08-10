@@ -52,18 +52,36 @@ class RegulationMonitorV2:
 
     def _init_sources(self):
         """Инициализировать источники в базе данных."""
-        for source_config in self.config['sources']:
-            source = self.db.query(Source).filter_by(id=source_config['id']).first()
+        for source_config in self.config["sources"]:
+            source = (
+                self.db.query(Source)
+                .filter_by(id=source_config["id"])
+                .first()
+            )
+
+            # Выделяем дополнительные поля, которые нужно сохранить в Source.extra
+            extra_fields = {
+                k: v
+                for k, v in source_config.items()
+                if k
+                not in {"id", "url", "type", "freq", "active", "description"}
+            }
+
             if not source:
                 source = Source(
-                    id=source_config['id'],
-                    url=source_config['url'],
-                    type=source_config['type'],
-                    freq=source_config['freq'],
-                    active=True
+                    id=source_config["id"],
+                    url=source_config["url"],
+                    type=source_config["type"],
+                    freq=source_config["freq"],
+                    active=True,
+                    extra=extra_fields or None,
                 )
                 self.db.add(source)
-        
+            else:
+                # Обновляем только дополнительные параметры, не перезаписывая URL и тип
+                if extra_fields:
+                    source.extra = extra_fields
+
         self.db.commit()
         logger.info(f"Initialized {len(self.config['sources'])} sources")
 
@@ -75,7 +93,7 @@ class RegulationMonitorV2:
             .all()
         )
 
-        tasks = []
+        tasks: List[asyncio.Task] = []
         async with aiohttp.ClientSession(headers={"User-Agent": UA}) as session:
             for source in active_sources:
                 if source_type == "eli_sparql":
@@ -87,7 +105,7 @@ class RegulationMonitorV2:
                 elif source_type == "press_api":
                     tasks.append(self._process_press_api_source(source, session))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         stats = {"type": source_type, "processed": 0, "errors": 0}
         for result in results:
             if isinstance(result, Exception):
@@ -123,26 +141,26 @@ class RegulationMonitorV2:
         press_api_sources = [s for s in active_sources if s.type == "press_api"]
         
         # Создаём задачи для асинхронного выполнения
-        tasks = []
+        tasks: List[asyncio.Task] = []
         async with aiohttp.ClientSession(headers={"User-Agent": UA}) as session:
             # ELI SPARQL источники
             for source in eli_sources:
                 tasks.append(self._process_eli_source(source, session))
-            
+
             # RSS источники
             for source in rss_sources:
                 tasks.append(self._process_rss_source(source, session))
-            
+
             # HTML источники
             for source in html_sources:
                 tasks.append(self._process_html_source(source, session))
-            
+
             # Press API источники
             for source in press_api_sources:
                 tasks.append(self._process_press_api_source(source, session))
-        
-        # Выполняем все задачи параллельно
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Выполняем все задачи параллельно пока сессия открыта
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Подсчитываем статистику
         stats = {"eli_sparql": 0, "rss": 0, "html": 0, "press_api": 0, "errors": 0}
@@ -168,21 +186,25 @@ class RegulationMonitorV2:
         """Обработать ELI SPARQL источник."""
         logger.info(f"Starting _process_eli_source for source: {source.id}")
         try:
-            # Получаем CELEX ID из extra, атрибута или URL
-            celex_id = None
-            if hasattr(source, 'extra') and source.extra and 'celex_id' in source.extra:
-                celex_id = source.extra['celex_id']
-            if not celex_id:
-                celex_id = getattr(source, 'celex_id', None)
-            if not celex_id:
-                celex_id = self._extract_celex_id(source.url)
+            # Получаем настройки из Source.extra
+            extra = source.extra or {}
+
+            # CELEX ID может быть в extra, атрибуте модели или в URL
+            celex_id = (
+                extra.get("celex_id")
+                or getattr(source, "celex_id", None)
+                or self._extract_celex_id(source.url)
+            )
             logger.info(f"Using CELEX ID: {celex_id} for source: {source.id}")
             if not celex_id:
                 logger.warning(f"No CELEX ID found for source {source.id}")
                 return None
-            # Получаем endpoint и SPARQL запрос
-            endpoint = getattr(source, 'endpoint', 'https://publications.europa.eu/webapi/rdf/sparql')
-            sparql_file = getattr(source, 'sparql', None)
+
+            # Получаем endpoint и путь к SPARQL-запросу
+            endpoint = extra.get(
+                "endpoint", "https://publications.europa.eu/webapi/rdf/sparql"
+            )
+            sparql_file = extra.get("sparql")
             # Загружаем SPARQL запрос
             if sparql_file and sparql_file.startswith('file:'):
                 query_path = Path(sparql_file.replace('file:', ''))
@@ -252,25 +274,39 @@ class RegulationMonitorV2:
         try:
             # Получаем RSS-фид
             entries = await fetch_rss_feed(source.url)
-            
-            # Проверяем новые элементы
+
             new_entries = []
             for link, content_hash, title in entries:
-                if not self._has_content_changed(source.id, content_hash):
+                exists = (
+                    self.db.query(RegulationSourceLog)
+                    .filter_by(source_id=source.id, content_hash=content_hash)
+                    .first()
+                )
+                if not exists:
                     new_entries.append((link, content_hash, title))
-            
-            # Логируем операцию
+                    # Логируем уникальный элемент
+                    self._log_source_operation(
+                        source.id, "success", content_hash, None, None
+                    )
+
+            # Логируем сам факт обновления фида
             self._log_source_operation(
-                source.id, "success", 
+                source.id,
+                "success",
                 hashlib.sha256(str(entries).encode()).hexdigest(),
-                len(str(entries)), None
+                len(str(entries)),
+                None,
             )
-            
+
             # Создаём алерты для новых элементов
             for link, content_hash, title in new_entries:
                 self._create_rss_alert(source.id, title, link)
-            
-            return {"type": "rss", "source_id": source.id, "new_entries": len(new_entries)}
+
+            return {
+                "type": "rss",
+                "source_id": source.id,
+                "new_entries": len(new_entries),
+            }
             
         except Exception as e:
             self._log_source_operation(source.id, "error", None, None, str(e))

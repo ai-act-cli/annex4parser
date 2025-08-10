@@ -145,8 +145,8 @@ async def test_rss_monitoring():
     logger.info("Testing RSS monitoring...")
     
     try:
-        # Тестируем EUR-Lex RSS
-        entries = await fetch_rss_feed(REGULATORY_RSS_FEEDS["eurlex_latest"])
+        # Тестируем RSS пленарных заседаний Европарламента
+        entries = await fetch_rss_feed(REGULATORY_RSS_FEEDS["ep_plenary"])
         
         logger.info(f"Fetched {len(entries)} RSS entries")
         
