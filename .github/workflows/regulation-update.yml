@@ -18,7 +18,6 @@ jobs:
         with:
           python-version: '3.x'
       - run: pip install -r requirements.txt
-      - run: pip install -e .
       - name: Update regulations
         run: python -m annex4parser update-all --db-url "$DATABASE_URL"
       - name: Sync rules into database
