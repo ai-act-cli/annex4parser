@@ -291,7 +291,7 @@ if __name__ == "__main__":
         )
         
         emitter.emit_rss_update(
-            source_id="eurlex_latest_rss",
+            source_id="ep_plenary",
             title="New AI Regulation Published",
             link="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1234"
         )

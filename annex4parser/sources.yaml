@@ -20,12 +20,6 @@ sources:
     description: "EU AI Act original regulation"
     
   # --- RSS ---
-  - id: eurlex_latest_rss
-    type: rss
-    url: "https://eur-lex.europa.eu/legal-content/EN/RSS/?type=latestLegislation"
-    freq: "instant"
-    description: "EUR-Lex latest legislation RSS"
-    
   - id: ep_plenary
     type: rss
     url: "https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml"

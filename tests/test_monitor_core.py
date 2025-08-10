@@ -43,7 +43,7 @@ class TestRegulationMonitorV2:
         source_ids = [s.id for s in sources]
         assert any("celex" in s_id for s_id in source_ids)  # celex_consolidated
         assert any("ai_act" in s_id for s_id in source_ids)  # ai_act_original
-        assert any("rss" in s_id for s_id in source_ids)  # eurlex_latest_rss
+        assert any(s.type == "rss" for s in sources)  # ep_plenary
 
     @pytest.mark.asyncio
     async def test_update_all_success(self, test_db, test_config_path):
