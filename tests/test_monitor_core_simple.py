@@ -61,26 +61,3 @@ async def test_same_content_no_duplicate(mock_init_sources, test_db, test_config
     assert test_db.query(Regulation).count() == 1
     assert test_db.query(RegulationSourceLog).count() == 2
 
-@pytest.mark.asyncio
-async def test_press_api_alert_created(test_db, test_config_path):
-    mon = RegulationMonitorV2(test_db, config_path=test_config_path)
-    with patch.object(mon, '_init_sources', return_value=None):
-        src = Source(id="ec_press_pdf", url="https://ec.europa.eu/commission/presscorner/api/", type="press_api", active=True)
-        test_db.add(src)
-        test_db.commit()
-        fake_event = {"title": "AI Act: Commission welcomes deal"}
-
-        class FakeResponse:
-            status = 200
-            async def json(self): return {"events": [fake_event]}
-            async def __aenter__(self): return self
-            async def __aexit__(self, exc_type, exc, tb): pass
-            def raise_for_status(self): pass
-
-        async with aiohttp.ClientSession() as session:
-            with patch.object(session, "get", return_value=FakeResponse()):
-                await mon._process_press_api_source(
-                    src,
-                    session
-                )
-    assert test_db.query(ComplianceAlert).count() == 1

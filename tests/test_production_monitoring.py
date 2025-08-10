@@ -85,9 +85,9 @@ class TestRegulationMonitorV2:
             monitor = RegulationMonitorV2(test_db, config_path=test_config_path)
             
             # Тестируем извлечение CELEX ID
-            url = "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32023R0988"
+            url = "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1689"
             celex_id = monitor._extract_celex_id(url)
-            assert celex_id == "32023"  # Регулярное выражение извлекает только цифры
+            assert celex_id == "32024R1689"
             
             # Тестируем URL без CELEX ID
             url_no_celex = "https://example.com"

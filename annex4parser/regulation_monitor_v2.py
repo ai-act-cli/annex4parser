@@ -102,8 +102,8 @@ class RegulationMonitorV2:
                     tasks.append(self._process_rss_source(source, session))
                 elif source_type == "html":
                     tasks.append(self._process_html_source(source, session))
-                elif source_type == "press_api":
-                    tasks.append(self._process_press_api_source(source, session))
+                # press_api больше не используем: у Presscorner нет публичного /api/events
+                # RSS уже покрывает этот источник.
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
         stats = {"type": source_type, "processed": 0, "errors": 0}
@@ -133,12 +133,11 @@ class RegulationMonitorV2:
             Статистика обновлений по типам источников
         """
         active_sources = self.db.query(Source).filter_by(active=True).all()
-        
+
         # Группируем источники по типам
         eli_sources = [s for s in active_sources if s.type == "eli_sparql"]
         rss_sources = [s for s in active_sources if s.type == "rss"]
         html_sources = [s for s in active_sources if s.type == "html"]
-        press_api_sources = [s for s in active_sources if s.type == "press_api"]
         
         # Создаём задачи для асинхронного выполнения
         tasks: List[asyncio.Task] = []
@@ -155,15 +154,12 @@ class RegulationMonitorV2:
             for source in html_sources:
                 tasks.append(self._process_html_source(source, session))
 
-            # Press API источники
-            for source in press_api_sources:
-                tasks.append(self._process_press_api_source(source, session))
 
             # Выполняем все задачи параллельно пока сессия открыта
             results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Подсчитываем статистику
-        stats = {"eli_sparql": 0, "rss": 0, "html": 0, "press_api": 0, "errors": 0}
+        stats = {"eli_sparql": 0, "rss": 0, "html": 0, "errors": 0}
         for result in results:
             if isinstance(result, Exception):
                 stats["errors"] += 1
@@ -173,7 +169,7 @@ class RegulationMonitorV2:
                 stats[source_type] += 1
         
         # Добавляем общее количество обработанных источников
-        stats["total"] = stats["eli_sparql"] + stats["rss"] + stats["html"] + stats["press_api"]
+        stats["total"] = stats["eli_sparql"] + stats["rss"] + stats["html"]
         
         logger.info(f"Update completed: {stats}")
         return stats
@@ -346,55 +342,12 @@ class RegulationMonitorV2:
             self._log_source_operation(source.id, "error", None, None, str(e))
             raise
     
-    async def _process_press_api_source(
-        self, 
-        source: Source, 
-        session: aiohttp.ClientSession
-    ) -> Optional[Dict]:
-        """Обработать press API источник."""
-        try:
-            # Получаем список событий из presscorner API
-            api_url = f"{source.url}events?lang=en&type=IP,STATEMENT"
-            
-            async with session.get(
-                api_url,
-                headers={
-                    'Accept': 'application/json',
-                    'User-Agent': 'Annex4ComplianceBot/1.0'
-                },
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as resp:
-                resp.raise_for_status()
-                events = await resp.json()
-            
-            # Обрабатываем события
-            new_events = []
-            for event in events.get('events', []):
-                event_hash = hashlib.sha256(str(event).encode()).hexdigest()
-                if self._has_content_changed(source.id, event_hash):
-                    new_events.append(event)
-                    # Создаём алерт для нового события
-                    self._create_press_alert(source.id, event)
-            
-            # Логируем операцию
-            self._log_source_operation(
-                source.id, "success", 
-                hashlib.sha256(str(events).encode()).hexdigest(),
-                len(str(events)), None
-            )
-            
-            return {"type": "press_api", "source_id": source.id, "new_events": len(new_events)}
-            
-        except Exception as e:
-            self._log_source_operation(source.id, "error", None, None, str(e))
-            raise
-    
     async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, query: str) -> Optional[Dict]:
         """Выполнить SPARQL запрос."""
         try:
-            async with session.post(
+            async with session.get(
                 endpoint,
-                data={'query': query},
+                params={'query': query, 'format': 'application/sparql-results+json'},
                 headers={
                     'Accept': 'application/sparql-results+json',
                     'User-Agent': 'Annex4ComplianceBot/1.0'
@@ -435,7 +388,7 @@ class RegulationMonitorV2:
         """Извлечь CELEX ID из URL."""
         import re
         logger.info(f"Extracting CELEX ID from URL: {url}")
-        match = re.search(r'CELEX%3A(\d+)', url)
+        match = re.search(r'CELEX%3A([A-Z0-9]+)', url, re.IGNORECASE)
         if match:
             celex_id = match.group(1)
             logger.info(f"Extracted CELEX ID: {celex_id}")
