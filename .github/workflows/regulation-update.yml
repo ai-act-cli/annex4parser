@@ -20,6 +20,8 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Update regulations
         run: python -m annex4parser update-all --db-url "$DATABASE_URL"
+      - name: Initialise DB schema
+        run: risk-detector init_db --db-url "$DATABASE_URL"
       - name: Sync rules into database
         run: |
           risk-detector sync_rules --db-url "$DATABASE_URL"
