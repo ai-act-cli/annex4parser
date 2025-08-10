@@ -11,6 +11,7 @@ jobs:
     env:
       # Database connection string
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
