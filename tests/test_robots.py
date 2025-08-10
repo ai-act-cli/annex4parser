@@ -287,7 +287,7 @@ class TestUserAgentHandling:
 
     def test_user_agent_construction(self):
         """Тест конструирования User-Agent"""
-        from annex4parser.user_agent import get_user_agent
+        from annex4parser.user_agents import get_user_agent
         
         user_agent = get_user_agent()
         
@@ -297,7 +297,7 @@ class TestUserAgentHandling:
 
     def test_user_agent_with_contact(self):
         """Тест User-Agent с контактной информацией"""
-        from annex4parser.user_agent import get_user_agent
+        from annex4parser.user_agents import get_user_agent
         
         user_agent = get_user_agent(contact_url="https://example.com/contact")
         
@@ -306,7 +306,7 @@ class TestUserAgentHandling:
 
     def test_user_agent_with_version(self):
         """Тест User-Agent с версией"""
-        from annex4parser.user_agent import get_user_agent
+        from annex4parser.user_agents import get_user_agent
         
         user_agent = get_user_agent(version="2.0")
         
@@ -315,7 +315,7 @@ class TestUserAgentHandling:
 
     def test_user_agent_default_values(self):
         """Тест значений по умолчанию для User-Agent"""
-        from annex4parser.user_agent import get_user_agent
+        from annex4parser.user_agents import get_user_agent
         
         user_agent = get_user_agent()
         

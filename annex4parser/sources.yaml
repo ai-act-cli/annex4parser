@@ -5,7 +5,7 @@ sources:
   # --- SPARQL ---
   - id: celex_consolidated
     type: eli_sparql
-    celex_id: "32024R1689"
+    celex_id: "32024R1689"   # AI Act (консолид./последняя экспрессия)
     url: "https://publications.europa.eu/webapi/rdf/sparql"
     sparql: "file:queries/ai_act_consolidated.rq"
     freq: "6h"
@@ -13,7 +13,8 @@ sources:
     
   - id: ai_act_original
     type: eli_sparql
-    celex_id: "32023R0988"
+    # «Оригинал» = OJ-публикация AI Act. Это ТОЖЕ 32024R1689, но в SPARQL фильтруем версию по дате/типу.
+    celex_id: "32024R1689"
     url: "https://publications.europa.eu/webapi/rdf/sparql"
     sparql: "file:queries/ai_act_original.rq"
     freq: "6h"
@@ -25,18 +26,27 @@ sources:
     url: "https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml"
     freq: "12h"
     description: "European Parliament plenary sessions"
+
+  # EUR-Lex predefined RSS вместо 404 URL
+  - id: eurlex_latest_legislation
+    type: rss
+    url: "https://eur-lex.europa.eu/EN/display-feed.rss?rssId=162"
+    freq: "12h"
+    description: "EUR-Lex: All Parliament and Council legislation (predefined feed)"
     
-  # --- Presscorner заменили на REST ---
-  - id: ec_press_pdf
-    type: press_api
-    url: "https://ec.europa.eu/commission/presscorner/api/"
+  # --- Presscorner: используем RSS ссылку сохранённого поиска ---
+  # Зайдите на страницу поиска Presscorner, примените фильтры и возьмите ссылку "RSS Link".
+  # Пример (поставьте свою ссылку RSS из Presscorner):
+  - id: ec_press_rss
+    type: rss
+    url: "https://ec.europa.eu/commission/presscorner/home/en?YOUR_SAVED_SEARCH_RSS_URL"
     freq: "6h"
-    description: "European Commission press releases (REST API)"
+    description: "European Commission Presscorner (RSS из сохранённого поиска)"
     
   # --- HTML fallback (без изменений) ---
   - id: ai_act_html
     type: html
-    url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32023R0988"
+    url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1689"
     freq: "24h"
     description: "EU AI Act HTML version"
 

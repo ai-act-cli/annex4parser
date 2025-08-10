@@ -169,7 +169,7 @@ class TestRegulationMonitorV2:
         
         # Тест с валидным URL (с CELEX параметром)
         celex_id = monitor._extract_celex_id("https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1689")
-        assert celex_id == "32024"  # Регулярное выражение извлекает только цифры
+        assert celex_id == "32024R1689"
         
         # Тест с невалидным URL
         celex_id = monitor._extract_celex_id("https://example.com/invalid")
@@ -372,7 +372,7 @@ class TestSourceGrouping:
             assert 'freq' in source
             
             # Проверяем, что тип источника валидный
-            assert source['type'] in ['eli_sparql', 'rss', 'html', 'press_api']
+            assert source['type'] in ['eli_sparql', 'rss', 'html']
             
             # Проверяем, что частота валидная
             assert source['freq'] in ['instant', '1h', '6h', '12h', '24h']

@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
 from .robots_checker import check_robots_allowed, get_crawl_delay
-from .user_agent import get_user_agent
+from .user_agents import get_user_agent
 
 
 class EthicalFetcher:
