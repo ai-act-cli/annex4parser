@@ -66,6 +66,7 @@ class RegulationMonitorV2:
                 if k
                 not in {"id", "url", "type", "freq", "active", "description"}
             }
+            cfg_active = bool(source_config.get("active", True))
 
             if not source:
                 source = Source(
@@ -73,14 +74,15 @@ class RegulationMonitorV2:
                     url=source_config["url"],
                     type=source_config["type"],
                     freq=source_config["freq"],
-                    active=True,
+                    active=cfg_active,
                     extra=extra_fields or None,
                 )
                 self.db.add(source)
             else:
-                # Обновляем только дополнительные параметры, не перезаписывая URL и тип
+                # Обновляем дополнительные параметры и активность (URL/тип не трогаем)
                 if extra_fields:
                     source.extra = extra_fields
+                source.active = cfg_active
 
         self.db.commit()
         logger.info(f"Initialized {len(self.config['sources'])} sources")
@@ -233,24 +235,44 @@ class RegulationMonitorV2:
                 """
             eli_data = await self._execute_sparql_query(session, endpoint, sparql_query)
             logger.info(f"SPARQL data received: {eli_data is not None}")
+            # Даже если SPARQL не сработал — продолжаем через HTML по CELEX (иначе источник "молчит")
             if not eli_data:
+                logger.warning("SPARQL failed; falling back to HTML-only ingestion")
+                txt = await self._fetch_html_text(session, f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:{celex_id}")
+                if not txt:
+                    logger.warning("No text via HTML; skipping.")
+                    return None
+                title = f"Regulation {celex_id}"
+                version = datetime.utcnow().strftime("%Y%m%d%H%M")
+                content_hash = hashlib.sha256(txt.encode()).hexdigest()
+                self._log_source_operation(source.id, "success", content_hash, len(txt), None)
+                if self._has_content_changed(source.id, content_hash):
+                    self._ingest_regulation_text(name=title, version=version, text=txt, url=source.url)
+                return {"type": "eli_sparql", "source_id": source.id}
+
+            # Если SPARQL есть — берём метаданные, а текст через HTML при надобности
+            txt = eli_data.get('text') or await self._fetch_html_text(
+                session, f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:{celex_id}"
+            )
+            if not txt:
+                logger.warning("No text retrieved via SPARQL or HTML; skipping.")
                 return None
-            content_hash = hashlib.sha256(eli_data['text'].encode()).hexdigest()
+            content_hash = hashlib.sha256(txt.encode()).hexdigest()
             logger.info(f"Content hash: {content_hash[:16]}...")
             # Сначала проверяем изменения
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
             # Логируем операцию
             self._log_source_operation(
-                source.id, "success", content_hash, 
-                len(eli_data['text']), None
+                source.id, "success", content_hash,
+                len(txt), None
             )
             # Обновляем регуляцию если есть изменения
             if has_changed:
                 regulation = self._ingest_regulation_text(
                     name=eli_data.get('title', f"Regulation {celex_id}"),
                     version=eli_data.get('version', datetime.utcnow().strftime("%Y%m%d%H%M")),
-                    text=eli_data['text'],
+                    text=txt,
                     url=source.url
                 )
                 logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
@@ -345,9 +367,9 @@ class RegulationMonitorV2:
     async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, query: str) -> Optional[Dict]:
         """Выполнить SPARQL запрос."""
         try:
-            async with session.get(
+            async with session.post(
                 endpoint,
-                params={'query': query, 'format': 'application/sparql-results+json'},
+                data={'query': query, 'format': 'application/sparql-results+json'},
                 headers={
                     'Accept': 'application/sparql-results+json',
                     'User-Agent': 'Annex4ComplianceBot/1.0'
@@ -356,7 +378,7 @@ class RegulationMonitorV2:
             ) as resp:
                 resp.raise_for_status()
                 result = await resp.json()
-                
+
                 # Парсим результат SPARQL
                 if 'results' in result and 'bindings' in result['results']:
                     bindings = result['results']['bindings']
@@ -369,9 +391,43 @@ class RegulationMonitorV2:
                             'text': binding.get('text', {}).get('value', '')
                         }
                 return None
-        except Exception as e:
-            logger.error(f"SPARQL query failed: {e}")
-            return None
+        except Exception as e1:
+            # Fallback GET если POST не удался
+            resp = None
+            try:
+                async with session.get(
+                    endpoint,
+                    params={'query': query, 'format': 'application/sparql-results+json'},
+                    headers={
+                        'Accept': 'application/sparql-results+json',
+                        'User-Agent': 'Annex4ComplianceBot/1.0'
+                    },
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as resp:
+                    resp.raise_for_status()
+                    result = await resp.json()
+                    if 'results' in result and 'bindings' in result['results']:
+                        bindings = result['results']['bindings']
+                        if bindings:
+                            binding = bindings[0]
+                            return {
+                                'title': binding.get('title', {}).get('value', 'Unknown Title'),
+                                'date': binding.get('date', {}).get('value', ''),
+                                'version': binding.get('version', {}).get('value', '1.0'),
+                                'text': binding.get('text', {}).get('value', '')
+                            }
+                    return None
+            except Exception as e2:
+                try:
+                    ct = resp.headers.get('Content-Type', 'n/a') if resp else 'n/a'  # type: ignore
+                    body_preview = (await resp.text())[:500] if resp else ''  # type: ignore
+                except Exception:
+                    ct = 'n/a'; body_preview = ''
+                q_preview = (query or '')[:200].replace('\n', ' ')
+                logger.error(
+                    f"SPARQL failed (POST:{e1}) and (GET:{e2}); endpoint={endpoint}; ct={ct}; body≈{body_preview!r}; query≈{q_preview}"
+                )
+                return None
 
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
         """Получить текст из HTML-страницы."""

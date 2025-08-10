@@ -1,7 +1,9 @@
 PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 SELECT ?title ?date ?version WHERE {
-  ?w cdm:work_id_document "celex:32024R1689"^^xsd:string .
+  # Надёжный матч CELEX:
+  { ?w cdm:work_id_document ?wid . FILTER(LCASE(STR(?wid)) = "celex:32024r1689") }
+  UNION { ?w cdm:resource_legal_id_celex "32024R1689" }
+  UNION { ?w cdm:work_celex_number "32024R1689" }
   ?expr cdm:expression_belongs_to_work ?w .
   ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/ENG> .
   OPTIONAL { ?expr cdm:expression_title ?title }

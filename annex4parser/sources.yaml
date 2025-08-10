@@ -35,13 +35,20 @@ sources:
     description: "EUR-Lex: All Parliament and Council legislation (predefined feed)"
     
   # --- Presscorner: используем RSS ссылку сохранённого поиска ---
-  # Зайдите на страницу поиска Presscorner, примените фильтры и возьмите ссылку "RSS Link".
-  # Пример (поставьте свою ссылку RSS из Presscorner):
+  # Пример плейсхолдер выключен; используйте Newsroom RSS ниже
   - id: ec_press_rss
     type: rss
-    url: "https://ec.europa.eu/commission/presscorner/home/en?YOUR_SAVED_SEARCH_RSS_URL"
+    active: false
+    url: "https://ec.europa.eu/commission/presscorner/"
     freq: "6h"
-    description: "European Commission Presscorner (RSS из сохранённого поиска)"
+    description: "Presscorner выдаёт HTML; используйте Newsroom RSS ниже"
+
+  # Пример рабочего RSS Newsroom (подставьте свой DG/тип)
+  - id: ec_newsroom_example
+    type: rss
+    url: "https://ec.europa.eu/newsroom/clima/items/itemType/1041?format=rss"
+    freq: "6h"
+    description: "EC Newsroom — новости (пример)"
     
   # --- HTML fallback (без изменений) ---
   - id: ai_act_html
