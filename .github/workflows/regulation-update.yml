@@ -17,12 +17,9 @@ jobs:
         with:
           python-version: '3.x'
       - run: pip install -r requirements.txt
+      - run: pip install -e .
       - name: Update regulations
-        run: |
-          python - <<'PY'
-          from RegulationMonitorV2 import RegulationMonitorV2
-          RegulationMonitorV2.update_all()
-          PY
+        run: python -m annex4parser update-all --db-url "$DATABASE_URL"
       - name: Sync rules into database
         run: |
           risk-detector sync_rules --db-url "$DATABASE_URL" --dir rules/risk
