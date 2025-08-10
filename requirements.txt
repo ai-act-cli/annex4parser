@@ -16,3 +16,4 @@ pyyaml
 kafka-python
 python-dotenv
 apscheduler
+annex4risk-detector
