@@ -1,7 +1,7 @@
-from annex4parser.regulation_monitor_v2 import RegulationMonitorV2
 import re
 
 
 def test_extract_celex_id_handles_letters():
-    m = re.search(r'CELEX%3A([A-Z0-9]+)', '...CELEX%3A52021PC0206', re.IGNORECASE)
-    assert m.group(1) == '52021PC0206'
+    pattern = re.compile(r'(?:CELEX%3A|CELEX:)([A-Z0-9]+)', re.IGNORECASE)
+    assert pattern.search('...CELEX%3A52021PC0206').group(1) == '52021PC0206'
+    assert pattern.search('...CELEX:52021PC0206').group(1) == '52021PC0206'

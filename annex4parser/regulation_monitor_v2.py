@@ -372,7 +372,7 @@ class RegulationMonitorV2:
                 data={'query': query, 'format': 'application/sparql-results+json'},
                 headers={
                     'Accept': 'application/sparql-results+json',
-                    'User-Agent': 'Annex4ComplianceBot/1.0'
+                    'User-Agent': UA
                 },
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as resp:
@@ -400,7 +400,7 @@ class RegulationMonitorV2:
                     params={'query': query, 'format': 'application/sparql-results+json'},
                     headers={
                         'Accept': 'application/sparql-results+json',
-                        'User-Agent': 'Annex4ComplianceBot/1.0'
+                        'User-Agent': UA
                     },
                     timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
@@ -444,7 +444,7 @@ class RegulationMonitorV2:
         """Извлечь CELEX ID из URL."""
         import re
         logger.info(f"Extracting CELEX ID from URL: {url}")
-        match = re.search(r'CELEX%3A([A-Z0-9]+)', url, re.IGNORECASE)
+        match = re.search(r'(?:CELEX%3A|CELEX:)([A-Z0-9]+)', url, re.IGNORECASE)
         if match:
             celex_id = match.group(1)
             logger.info(f"Extracted CELEX ID: {celex_id}")
