@@ -170,6 +170,10 @@ class TestRegulationMonitorV2:
         # Тест с валидным URL (с CELEX параметром)
         celex_id = monitor._extract_celex_id("https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1689")
         assert celex_id == "32024R1689"
+
+        # Поддерживается и неэкранированный вариант
+        celex_id = monitor._extract_celex_id("https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689")
+        assert celex_id == "32024R1689"
         
         # Тест с невалидным URL
         celex_id = monitor._extract_celex_id("https://example.com/invalid")
