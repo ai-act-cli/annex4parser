@@ -44,6 +44,18 @@ import re
 logger = logging.getLogger(__name__)
 
 
+def canonicalize(code: str) -> str:
+    """Normalize section codes by removing spaces and unifying delimiters."""
+    if not code:
+        return code
+    code = re.sub(r"\s+", "", code)
+    # convert parenthetical markers like "(1)" into dotted notation and
+    # ensure a trailing dot to separate any following tokens
+    code = re.sub(r"\(([^)]+)\)", r".\1.", code)
+    code = re.sub(r"\.{2,}", ".", code)
+    return code.strip(".")
+
+
 def fetch_regulation_text(url: str) -> str:
     """Download a regulation from the given URL and return its plain text.
 
@@ -60,6 +72,12 @@ def fetch_regulation_text(url: str) -> str:
 def parse_rules(raw_text: str) -> List[dict]:
     """Parse Articles and Annexes into rule entries (with optional parents).
 
+    The ``section_code`` follows a dotted grammar to reflect the legal
+    hierarchy:
+
+    ``ArticleN[.n][.letter][.roman]…`` (e.g. ``Article10a.1.b.i``)
+    ``AnnexIV[.n][.letter]…`` (e.g. ``AnnexIV.2.a``)
+
     Returns list of dicts with:
       - section_code: e.g. "Article11", "AnnexIV", "AnnexIV.1", "AnnexIV.1.a"
       - title: optional heading
@@ -73,7 +91,7 @@ def parse_rules(raw_text: str) -> List[dict]:
     boundaries = []
     
     # Находим все Articles
-    for match in re.finditer(r"(?m)^(\s*Article\s+\d+)", text):
+    for match in re.finditer(r"(?m)^(\s*Article\s+\d+[a-z]?\b)", text):
         boundaries.append(("Article", match.start(), match.group(1).strip()))
     
     # Находим все Annexes (case insensitive)
@@ -92,12 +110,12 @@ def parse_rules(raw_text: str) -> List[dict]:
         if block_type == "Article":
             # Парсим Article
             lines = block_text.splitlines()
-            m = re.match(r"Article\s+([\d\.\(\)a-zA-Z]+)\s*-?\s*(.*)", lines[0])
+            m = re.match(r"Article\s+(\d+[a-z]?)\b\s*-?\s*(.*)", lines[0])
             if m:
                 code = m.group(1).strip()
                 title = m.group(2).strip()
                 content = "\n".join(lines[1:]).strip()
-                parent_code = f"Article{code}"
+                parent_code = canonicalize(f"Article{code}")
                 rules.append({
                     "section_code": parent_code,
                     "title": title,
@@ -115,7 +133,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                 annex_title = (m.group(2) or "").strip()
                 body = "\n".join(lines[1:]).strip()
 
-                parent_code = f"Annex{roman}"
+                parent_code = canonicalize(f"Annex{roman}")
                 rules.append({
                     "section_code": parent_code,
                     "title": annex_title,
@@ -135,20 +153,21 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
         for i in range(1, len(top_parts), 2):
             num = top_parts[i]
             text_i = top_parts[i + 1] if i + 1 < len(top_parts) else ""
-            code_i = f"{parent_code}.{num}"
+            code_i = canonicalize(f"{parent_code}.{num}")
             rules.append({
                 "section_code": code_i,
                 "title": "",
                 "content": text_i.strip(),
-                "parent_section_code": parent_code,
+                "parent_section_code": canonicalize(parent_code),
             })
             sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", text_i)
             if len(sub_parts) >= 3:
                 for j in range(1, len(sub_parts), 2):
                     letter = sub_parts[j]
                     text_j = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
+                    sub_code = canonicalize(f"{code_i}.{letter}")
                     rules.append({
-                        "section_code": f"{code_i}.{letter}",
+                        "section_code": sub_code,
                         "title": "",
                         "content": text_j.strip(),
                         "parent_section_code": code_i,
@@ -164,13 +183,13 @@ def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
         for i in range(1, len(top_parts), 2):
             num = top_parts[i]
             text_i = top_parts[i+1] if i+1 < len(top_parts) else ""
-            code_i = f"{parent_code}.{num}"
+            code_i = canonicalize(f"{parent_code}.{num}")
             # Добавляем узел 1-го уровня
             rules.append({
                 "section_code": code_i,
                 "title": "",
                 "content": text_i.strip(),
-                "parent_section_code": parent_code,
+                "parent_section_code": canonicalize(parent_code),
             })
             # Разрезаем подпункты (a), (b) ...
             sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", text_i)
@@ -179,8 +198,9 @@ def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
                 for j in range(1, len(sub_parts), 2):
                     letter = sub_parts[j]
                     text_j = sub_parts[j+1] if j+1 < len(sub_parts) else ""
+                    sub_code = canonicalize(f"{code_i}.{letter}")
                     rules.append({
-                        "section_code": f"{code_i}.{letter}",
+                        "section_code": sub_code,
                         "title": "",
                         "content": text_j.strip(),
                         "parent_section_code": code_i,
