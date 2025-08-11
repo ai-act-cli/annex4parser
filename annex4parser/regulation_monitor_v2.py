@@ -24,13 +24,15 @@ from .models import (
     Regulation, Rule, DocumentRuleMapping, ComplianceAlert,
     Source, RegulationSourceLog, Document
 )
-from .eli_client import fetch_latest_eli
 from .rss_listener import fetch_rss_feed, RSSMonitor
 
 logger = logging.getLogger(__name__)
 
 # User-Agent для этичного скрапинга
-UA = "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+)
 
 
 class RegulationMonitorV2:
@@ -96,7 +98,13 @@ class RegulationMonitorV2:
         )
 
         tasks: List[asyncio.Task] = []
-        async with aiohttp.ClientSession(headers={"User-Agent": UA}) as session:
+        async with aiohttp.ClientSession(
+            headers={
+                "User-Agent": UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en",
+            }
+        ) as session:
             for source in active_sources:
                 if source_type == "eli_sparql":
                     tasks.append(self._process_eli_source(source, session))
@@ -112,7 +120,9 @@ class RegulationMonitorV2:
         for result in results:
             if isinstance(result, Exception):
                 stats["errors"] += 1
-                logger.error(f"Source processing error: {result}")
+                logger.error(
+                    f"Source processing error ({type(result).__name__}): {result}"
+                )
             elif result:
                 stats["processed"] += 1
         return stats
@@ -143,7 +153,13 @@ class RegulationMonitorV2:
         
         # Создаём задачи для асинхронного выполнения
         tasks: List[asyncio.Task] = []
-        async with aiohttp.ClientSession(headers={"User-Agent": UA}) as session:
+        async with aiohttp.ClientSession(
+            headers={
+                "User-Agent": UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en",
+            }
+        ) as session:
             # ELI SPARQL источники
             for source in eli_sources:
                 tasks.append(self._process_eli_source(source, session))
@@ -165,7 +181,9 @@ class RegulationMonitorV2:
         for result in results:
             if isinstance(result, Exception):
                 stats["errors"] += 1
-                logger.error(f"Source processing error: {result}")
+                logger.error(
+                    f"Source processing error ({type(result).__name__}): {result}"
+                )
             elif result:
                 source_type = result.get("type", "unknown")
                 stats[source_type] += 1
@@ -238,7 +256,8 @@ class RegulationMonitorV2:
             # Даже если SPARQL не сработал — продолжаем через HTML по CELEX (иначе источник "молчит")
             if not eli_data:
                 logger.warning("SPARQL failed; falling back to HTML-only ingestion")
-                txt = await self._fetch_html_text(session, f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:{celex_id}")
+                url = f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}"
+                txt = await self._fetch_html_text(session, url)
                 if not txt:
                     logger.warning("No text via HTML; skipping.")
                     return None
@@ -251,9 +270,8 @@ class RegulationMonitorV2:
                 return {"type": "eli_sparql", "source_id": source.id}
 
             # Если SPARQL есть — берём метаданные, а текст через HTML при надобности
-            txt = eli_data.get('text') or await self._fetch_html_text(
-                session, f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:{celex_id}"
-            )
+            url = f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}"
+            txt = eli_data.get('text') or await self._fetch_html_text(session, url)
             if not txt:
                 logger.warning("No text retrieved via SPARQL or HTML; skipping.")
                 return None
@@ -280,6 +298,15 @@ class RegulationMonitorV2:
                 logger.info("No changes detected, skipping regulation update")
             return {"type": "eli_sparql", "source_id": source.id}
         except Exception as e:
+            body = ""
+            if isinstance(e, aiohttp.ClientResponseError) and e.response:
+                try:
+                    body = await e.response.text()
+                except Exception:
+                    body = ""
+            logger.error(
+                f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
+            )
             self._log_source_operation(source.id, "error", None, None, str(e))
             raise
     
@@ -327,6 +354,15 @@ class RegulationMonitorV2:
             }
             
         except Exception as e:
+            body = ""
+            if isinstance(e, aiohttp.ClientResponseError) and e.response:
+                try:
+                    body = await e.response.text()
+                except Exception:
+                    body = ""
+            logger.error(
+                f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
+            )
             self._log_source_operation(source.id, "error", None, None, str(e))
             raise
     
@@ -361,6 +397,15 @@ class RegulationMonitorV2:
             return {"type": "html", "source_id": source.id}
             
         except Exception as e:
+            body = ""
+            if isinstance(e, aiohttp.ClientResponseError) and e.response:
+                try:
+                    body = await e.response.text()
+                except Exception:
+                    body = ""
+            logger.error(
+                f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
+            )
             self._log_source_operation(source.id, "error", None, None, str(e))
             raise
     
@@ -372,6 +417,7 @@ class RegulationMonitorV2:
                 data={'query': query, 'format': 'application/sparql-results+json'},
                 headers={
                     'Accept': 'application/sparql-results+json',
+                    'Accept-Language': 'en',
                     'User-Agent': UA
                 },
                 timeout=aiohttp.ClientTimeout(total=30)
@@ -400,6 +446,7 @@ class RegulationMonitorV2:
                     params={'query': query, 'format': 'application/sparql-results+json'},
                     headers={
                         'Accept': 'application/sparql-results+json',
+                        'Accept-Language': 'en',
                         'User-Agent': UA
                     },
                     timeout=aiohttp.ClientTimeout(total=30)
@@ -430,12 +477,20 @@ class RegulationMonitorV2:
                 return None
 
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
-        """Получить текст из HTML-страницы."""
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-            resp.raise_for_status()
-            html = await resp.text()
-            
-        # Используем BeautifulSoup для извлечения текста
+        """Получить текст из HTML-страницы с уважением к robots.txt."""
+        from .ethical_fetcher import ethical_fetch
+
+        try:
+            html = await ethical_fetch(session, url, user_agent=UA)
+        except aiohttp.ClientResponseError as e:
+            body = await e.response.text() if e.response else ""
+            logger.error(
+                f"HTTP {e.status} {e.message}; ct={e.headers.get('Content-Type')}; body≈{body[:400]!r}"
+            )
+            raise
+        if not html:
+            raise RuntimeError(f"HTML fetch failed for {url}")
+
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         return soup.get_text(separator="\n")

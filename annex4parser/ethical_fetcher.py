@@ -3,12 +3,17 @@
 """
 
 import asyncio
+import logging
 import time
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
+import aiohttp
+
 from .robots_checker import check_robots_allowed, get_crawl_delay
 from .user_agents import get_user_agent
+
+logger = logging.getLogger(__name__)
 
 
 class EthicalFetcher:
@@ -43,8 +48,14 @@ class EthicalFetcher:
             return self.cache[url]
         
         # Проверяем robots.txt
-        is_allowed = await check_robots_allowed(self.session, url, self.user_agent)
+        is_allowed, rule = await check_robots_allowed(
+            self.session, url, self.user_agent, return_rule=True
+        )
         if not is_allowed:
+            parsed = urlparse(url)
+            logger.warning(
+                f"Robots disallow: domain={parsed.netloc}, path={parsed.path}, rule={rule}"
+            )
             return None
         
         # Получаем crawl-delay
@@ -54,20 +65,21 @@ class EthicalFetcher:
         await self._respect_crawl_delay(url, delay)
         
         try:
-            # Делаем запрос
-            headers = {'User-Agent': self.user_agent}
+            headers = {
+                'User-Agent': self.user_agent,
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Language': 'en',
+            }
             response = await self.session.get(url, headers=headers)
-            
-            if hasattr(response, 'status') and response.status == 200:
-                content = await response.text()
-                
-                # Кэшируем результат
-                if use_cache:
-                    self.cache[url] = content
-                
-                return content
-            else:
-                return None
+            response.raise_for_status()
+            content = await response.text()
+
+            if use_cache:
+                self.cache[url] = content
+
+            return content
+        except aiohttp.ClientResponseError:
+            raise
         except Exception:
             return None
     

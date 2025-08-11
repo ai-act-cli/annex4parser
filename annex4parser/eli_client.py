@@ -1,8 +1,9 @@
 # eli_client.py
-"""ELI SPARQL клиент для работы с EUR-Lex API.
+"""СПARQL клиент для работы с EUR-Lex CELLAR (CDM).
 
-Этот модуль предоставляет асинхронный клиент для работы с ELI (European Legislation Identifier)
-SPARQL endpoint'ом. ELI даёт стабильные URI и метаданные для регуляторных документов.
+На публичном SPARQL endpoint Publications Office данные публикуются в **CDM**
+(CELLAR) онтологии, а не в ELI. Этот модуль предоставляет асинхронный клиент,
+который выполняет запросы в CDM и возвращает базовые метаданные документа.
 """
 
 import asyncio
@@ -13,27 +14,32 @@ from tenacity import retry, wait_exponential_jitter, stop_after_attempt
 
 logger = logging.getLogger(__name__)
 
-# ELI SPARQL endpoint
+# SPARQL endpoint CELLAR
 ELI_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
 # User-Agent для этичного скрапинга
-UA = "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+)
 
-# Базовый SPARQL запрос для получения последней версии регуляторного документа
+# Базовый SPARQL запрос в CDM для получения последней версии документа
 BASE_QUERY = """
-PREFIX eli: <http://data.europa.eu/eli/ontology#>
-PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
 SELECT ?date ?version ?text ?title WHERE {{
-  ?work eli:is_realised_by/eli:date_publication ?date ;
-        eli:is_member_of /eli:id_local ?celex_id .
-  ?expr eli:is_embodiment_of ?work ;
-        eli:language <http://publications.europa.eu/resource/authority/language/ENG> ;
-        eli:version ?version ;
-        eli:content ?text .
-  OPTIONAL {{ ?work dcterms:title ?title }}
-  FILTER(?celex_id = "{celex_id}")
+  ?w cdm:resource_legal_id_celex "{celex_id}" .
+  ?expr cdm:expression_belongs_to_work ?w .
+  ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/ENG> .
+  OPTIONAL {{ ?expr cdm:expression_title ?title }}
+  OPTIONAL {{ ?w cdm:work_date_document ?date }}
+  OPTIONAL {{ ?expr cdm:expression_version ?version }}
+  OPTIONAL {{
+    ?expr cdm:expression_legal_resource ?res .
+    ?res cdm:legal_resource_legal_text ?text
+  }}
 }}
-ORDER BY DESC(?date) LIMIT 1
+ORDER BY DESC(?date)
+LIMIT 1
 """
 
 
@@ -42,10 +48,10 @@ ORDER BY DESC(?date) LIMIT 1
     stop=stop_after_attempt(5)
 )
 async def fetch_latest_eli(
-    session: aiohttp.ClientSession, 
+    session: aiohttp.ClientSession,
     celex_id: str
 ) -> Optional[Dict[str, str]]:
-    """Получить последнюю версию документа через ELI SPARQL.
+    """Получить последнюю версию документа через SPARQL (CDM).
     
     Parameters
     ----------
@@ -68,9 +74,13 @@ async def fetch_latest_eli(
     
     try:
         async with session.get(
-            ELI_ENDPOINT, 
+            ELI_ENDPOINT,
             params=params,
-            headers={"User-Agent": UA},
+            headers={
+                "User-Agent": UA,
+                "Accept": "application/sparql-results+json",
+                "Accept-Language": "en",
+            },
             timeout=aiohttp.ClientTimeout(total=30)
         ) as resp:
             resp.raise_for_status()

@@ -16,7 +16,10 @@ from tenacity import retry, wait_exponential_jitter, stop_after_attempt
 logger = logging.getLogger(__name__)
 
 # User-Agent для этичного скрапинга
-UA = "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+)
 
 
 @retry(
@@ -43,8 +46,12 @@ async def fetch_rss(
     """
     try:
         async with session.get(
-            url, 
-            headers={"User-Agent": UA},
+            url,
+            headers={
+                "User-Agent": UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en",
+            },
             timeout=aiohttp.ClientTimeout(total=30)
         ) as resp:
             resp.raise_for_status()

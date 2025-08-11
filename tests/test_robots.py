@@ -235,8 +235,26 @@ Allow: /"""
             from annex4parser.robots_checker import get_crawl_delay
             
             delay = await get_crawl_delay(mock_session, f"https://{domain}/test")
-            
+
             assert delay == 0  # По умолчанию
+
+    @pytest.mark.asyncio
+    async def test_query_path_not_blocked(self, mock_session):
+        """Путь с query не должен блокироваться правилом для под-пути."""
+        domain = "example.com"
+        robots_url, robots_content = mock_robots_txt(
+            domain, "User-agent: *\nDisallow: /legal-content/EN/TXT/DOC/"
+        )
+
+        with aioresponses() as m:
+            setup_aiohttp_mocks(m, robots_url, content=robots_content)
+
+            from annex4parser.robots_checker import check_robots_allowed
+
+            url = f"https://{domain}/legal-content/EN/TXT/?uri=CELEX%3A32024R1689"
+            is_allowed = await check_robots_allowed(mock_session, url)
+
+            assert is_allowed is True
 
     @pytest.mark.asyncio
     async def test_robots_txt_malformed(self, mock_session):
@@ -354,7 +372,6 @@ class TestEthicalScraping:
             
             # Попытка fetch должна быть заблокирована
             result = await ethical_fetch(mock_session, f"https://{domain}/test")
-            
             assert result is None
 
     @pytest.mark.asyncio
@@ -496,10 +513,9 @@ Allow: /"""
             )
             
             from annex4parser.ethical_fetcher import ethical_fetch
-            
-            result = await ethical_fetch(mock_session, f"https://{domain}/test")
-            
-            assert result is None
+            import aiohttp
+            with pytest.raises(aiohttp.ClientResponseError):
+                await ethical_fetch(mock_session, f"https://{domain}/test")
 
     @pytest.mark.asyncio
     async def test_ethical_fetch_cache(self, mock_session):
