@@ -253,9 +253,26 @@ class RegulationMonitorV2:
                 """
             eli_data = await self._execute_sparql_query(session, endpoint, sparql_query)
             logger.info(f"SPARQL data received: {eli_data is not None}")
-            # Даже если SPARQL не сработал — продолжаем через HTML по CELEX (иначе источник "молчит")
-            if not eli_data:
-                logger.warning("SPARQL failed; falling back to HTML-only ingestion")
+
+            fetch_mode = "sparql_text"
+            txt: Optional[str] = None
+
+            if eli_data:
+                txt = eli_data.get('text')
+                if not txt and eli_data.get('item_url'):
+                    fetch_mode = "sparql_item"
+                    try:
+                        fmt = eli_data.get('format', '').upper()
+                        if 'PDF' in fmt:
+                            txt = await self._fetch_pdf_text(session, eli_data['item_url'])
+                        else:
+                            txt = await self._fetch_html_text(session, eli_data['item_url'])
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch item {eli_data['item_url']}: {e}")
+
+            if not txt:
+                logger.warning("SPARQL failed or returned no text; falling back to HTML-only ingestion")
+                fetch_mode = "html_fallback"
                 url = f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}"
                 txt = await self._fetch_html_text(session, url)
                 if not txt:
@@ -267,25 +284,20 @@ class RegulationMonitorV2:
                 has_changed = self._has_content_changed(source.id, content_hash)
                 if has_changed or not self._regulation_exists(title):
                     self._ingest_regulation_text(name=title, version=version, text=txt, url=source.url)
-                self._log_source_operation(source.id, "success", content_hash, len(txt), None)
+                self._log_source_operation(source.id, "success", content_hash, len(txt), None, fetch_mode)
                 return {"type": "eli_sparql", "source_id": source.id}
 
-            # Если SPARQL есть — берём метаданные, а текст через HTML при надобности
-            url = f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}"
-            txt = eli_data.get('text') or await self._fetch_html_text(session, url)
-            if not txt:
-                logger.warning("No text retrieved via SPARQL or HTML; skipping.")
-                return None
+            # Обработка текста и метаданных
             content_hash = hashlib.sha256(txt.encode()).hexdigest()
             logger.info(f"Content hash: {content_hash[:16]}...")
-            # Сначала проверяем изменения
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
-            name = eli_data.get('title', f"Regulation {celex_id}")
+            name = eli_data.get('title', f"Regulation {celex_id}") if eli_data else f"Regulation {celex_id}"
+            version = eli_data.get('version', datetime.utcnow().strftime("%Y%m%d%H%M")) if eli_data else datetime.utcnow().strftime("%Y%m%d%H%M")
             if has_changed or not self._regulation_exists(name):
                 regulation = self._ingest_regulation_text(
                     name=name,
-                    version=eli_data.get('version', datetime.utcnow().strftime("%Y%m%d%H%M")),
+                    version=version,
                     text=txt,
                     url=source.url
                 )
@@ -294,7 +306,7 @@ class RegulationMonitorV2:
                 logger.info("No changes detected, skipping regulation update")
             self._log_source_operation(
                 source.id, "success", content_hash,
-                len(txt), None
+                len(txt), None, fetch_mode
             )
             return {"type": "eli_sparql", "source_id": source.id}
         except Exception as e:
@@ -389,7 +401,7 @@ class RegulationMonitorV2:
                 )
                 logger.info(f"Updated regulation from HTML source {source.id}")
             self._log_source_operation(
-                source.id, "success", content_hash, len(text), None
+                source.id, "success", content_hash, len(text), None, "html"
             )
             
             return {"type": "html", "source_id": source.id}
@@ -404,11 +416,26 @@ class RegulationMonitorV2:
             logger.error(
                 f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
             )
-            self._log_source_operation(source.id, "error", None, None, str(e))
+            self._log_source_operation(source.id, "error", None, None, str(e), "html")
             raise
     
     async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, query: str) -> Optional[Dict]:
-        """Выполнить SPARQL запрос."""
+        """Выполнить SPARQL запрос и вернуть метаданные."""
+        async def _parse_result(result: Dict) -> Optional[Dict]:
+            if 'results' in result and 'bindings' in result['results']:
+                bindings = result['results']['bindings']
+                if bindings:
+                    b = bindings[0]
+                    return {
+                        'title': b.get('title', {}).get('value', 'Unknown Title'),
+                        'date': b.get('date', {}).get('value', ''),
+                        'version': b.get('version', {}).get('value', '1.0'),
+                        'text': b.get('text', {}).get('value'),
+                        'item_url': b.get('item', {}).get('value'),
+                        'format': b.get('format', {}).get('value')
+                    }
+            return None
+
         try:
             async with session.post(
                 endpoint,
@@ -422,21 +449,10 @@ class RegulationMonitorV2:
             ) as resp:
                 resp.raise_for_status()
                 result = await resp.json()
-
-                # Парсим результат SPARQL
-                if 'results' in result and 'bindings' in result['results']:
-                    bindings = result['results']['bindings']
-                    if bindings:
-                        binding = bindings[0]
-                        return {
-                            'title': binding.get('title', {}).get('value', 'Unknown Title'),
-                            'date': binding.get('date', {}).get('value', ''),
-                            'version': binding.get('version', {}).get('value', '1.0'),
-                            'text': binding.get('text', {}).get('value', '')
-                        }
-                return None
+                parsed = await _parse_result(result)
+                if parsed:
+                    return parsed
         except Exception as e1:
-            # Fallback GET если POST не удался
             resp = None
             try:
                 async with session.get(
@@ -451,17 +467,9 @@ class RegulationMonitorV2:
                 ) as resp:
                     resp.raise_for_status()
                     result = await resp.json()
-                    if 'results' in result and 'bindings' in result['results']:
-                        bindings = result['results']['bindings']
-                        if bindings:
-                            binding = bindings[0]
-                            return {
-                                'title': binding.get('title', {}).get('value', 'Unknown Title'),
-                                'date': binding.get('date', {}).get('value', ''),
-                                'version': binding.get('version', {}).get('value', '1.0'),
-                                'text': binding.get('text', {}).get('value', '')
-                            }
-                    return None
+                    parsed = await _parse_result(result)
+                    if parsed:
+                        return parsed
             except Exception as e2:
                 try:
                     ct = resp.headers.get('Content-Type', 'n/a') if resp else 'n/a'  # type: ignore
@@ -473,6 +481,7 @@ class RegulationMonitorV2:
                     f"SPARQL failed (POST:{e1}) and (GET:{e2}); endpoint={endpoint}; ct={ct}; body≈{body_preview!r}; query≈{q_preview}"
                 )
                 return None
+        return None
 
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
         """Получить текст из HTML-страницы с уважением к robots.txt."""
@@ -492,6 +501,18 @@ class RegulationMonitorV2:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         return soup.get_text(separator="\n")
+
+    async def _fetch_pdf_text(self, session: aiohttp.ClientSession, url: str) -> str:
+        """Получить текст из PDF-документа."""
+        import io
+        import pdfplumber
+
+        async with session.get(url, headers={'User-Agent': UA}) as resp:
+            resp.raise_for_status()
+            data = await resp.read()
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            pages = [p.extract_text() or "" for p in pdf.pages]
+        return "\n".join(pages)
     
     def _extract_celex_id(self, url: str) -> Optional[str]:
         """Извлечь CELEX ID из URL."""
@@ -531,12 +552,13 @@ class RegulationMonitorV2:
         return self.db.query(Regulation.id).filter_by(name=name).first() is not None
     
     def _log_source_operation(
-        self, 
-        source_id: str, 
-        status: str, 
+        self,
+        source_id: str,
+        status: str,
         content_hash: Optional[str],
         bytes_downloaded: Optional[int],
-        error_message: Optional[str]
+        error_message: Optional[str],
+        fetch_mode: Optional[str] = None
     ):
         """Логировать операцию с источником."""
         log = RegulationSourceLog(
@@ -544,7 +566,8 @@ class RegulationMonitorV2:
             status=status,
             content_hash=content_hash,
             bytes_downloaded=bytes_downloaded,
-            error_message=error_message
+            error_message=error_message,
+            fetch_mode=fetch_mode
         )
         self.db.add(log)
         self.db.commit()
