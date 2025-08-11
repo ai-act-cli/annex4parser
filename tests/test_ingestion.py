@@ -28,7 +28,7 @@ def create_sample_docx(text: str) -> Path:
 
 def test_ingest_and_map_creates_mappings():
     session = setup_db()
-    reg = Regulation(name='EU AI Act', version='1')
+    reg = Regulation(name='EU AI Act', celex_id='32024R1689', version='1')
     session.add(reg)
     session.flush()
     # Создаем правила из DEFAULT_KEYWORD_MAP
@@ -51,7 +51,4 @@ def test_ingest_and_map_creates_mappings():
     mappings = session.query(DocumentRuleMapping).all()
     codes = {m.rule.section_code for m in mappings}
     assert 'Article9.2' in codes
-    # Updated: YAML keywords might not include "documentation" -> "Article15.3" mapping
-    # Check if either old or new mapping exists  
-    has_doc_mapping = 'Article15.3' in codes or 'AnnexIV' in codes
-    assert has_doc_mapping, f"Should find documentation mapping, got codes: {codes}"
+    assert 'Article11' in codes or 'AnnexIV' in codes, f"Should find documentation mapping, got codes: {codes}"

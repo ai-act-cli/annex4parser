@@ -66,7 +66,7 @@ class AlertEmitter:
         regulation_name : str
             Название регуляции
         section_code : str
-            Код секции (например, "Article15.3")
+            Код секции (например, "Article11")
         change_type : str
             Тип изменения (update, new, deleted)
         """
@@ -287,7 +287,7 @@ if __name__ == "__main__":
             rule_id="rule-123",
             severity="major",
             regulation_name="EU AI Act",
-            section_code="Article15.3"
+            section_code="Article11"
         )
         
         emitter.emit_rss_update(

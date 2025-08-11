@@ -31,9 +31,8 @@ def test_basic_functionality():
     matches = match_rules(test_text)
     print(f"Found matches: {matches}")
     assert 'Article9.2' in matches, "Should find risk management"
-    # Updated: YAML keywords might not include "documentation" -> "Article15.3" mapping
-    # Check if either old or new mapping exists
-    has_doc_mapping = 'Article15.3' in matches or 'AnnexIV' in matches
+    # Updated: YAML keywords might not include "documentation" -> "Article11" mapping
+    has_doc_mapping = 'Article11' in matches or 'AnnexIV' in matches
     assert has_doc_mapping, f"Should find documentation mapping, got: {matches}"
     print("✓ Keyword matching works correctly")
     
@@ -45,7 +44,7 @@ def test_basic_functionality():
     session = Session()
     
     # Create test regulation and rules
-    reg = Regulation(name='EU AI Act', version='1.0')
+    reg = Regulation(name='EU AI Act', celex_id='32024R1689', version='1.0')
     session.add(reg)
     session.flush()
     
@@ -53,7 +52,7 @@ def test_basic_functionality():
     test_rules = [
         Rule(regulation_id=reg.id, section_code='Article9.2', title='Risk Management', 
              content='Risk management requirements for AI systems'),
-        Rule(regulation_id=reg.id, section_code='Article15.3', title='Documentation', 
+        Rule(regulation_id=reg.id, section_code='Article11', title='Documentation',
              content='Documentation requirements for compliance'),
         Rule(regulation_id=reg.id, section_code='Article10.1', title='Data Governance', 
              content='Data governance and management requirements')

@@ -221,14 +221,14 @@ class TestLegalDiffAnalyzer:
         """Тест анализа добавления текста."""
         analyzer = LegalDiffAnalyzer()
         
-        old_text = "Article 15.3 Documentation requirements."
-        new_text = "Article 15.3 Documentation requirements. Providers shall maintain records."
-        
-        change = analyzer.analyze_changes(old_text, new_text, "Article15.3")
-        
+        old_text = "Article 11 Documentation requirements."
+        new_text = "Article 11 Documentation requirements. Providers shall maintain records."
+
+        change = analyzer.analyze_changes(old_text, new_text, "Article11")
+
         assert change.change_type == "addition"
         assert change.severity in ["minor", "major", "high"]
-        assert change.section_code == "Article15.3"
+        assert change.section_code == "Article11"
     
     def test_analyze_changes_modification(self):
         """Тест анализа модификации текста."""
@@ -237,7 +237,7 @@ class TestLegalDiffAnalyzer:
         old_text = "Providers shall maintain documentation."
         new_text = "Providers must maintain comprehensive documentation."
         
-        change = analyzer.analyze_changes(old_text, new_text, "Article15.3")
+        change = analyzer.analyze_changes(old_text, new_text, "Article11")
         
         assert change.change_type == "modification"
         assert "must" in change.keywords_affected  # критическое ключевое слово
@@ -250,7 +250,7 @@ class TestLegalDiffAnalyzer:
         old_text = "Providers shall maintain documentation."
         new_text = "Providers shall maintain documentation."
         
-        change = analyzer.analyze_changes(old_text, new_text, "Article15.3")
+        change = analyzer.analyze_changes(old_text, new_text, "Article11")
         
         assert change.severity in ["clarification", "low"]
         assert change.semantic_score > 0.9
@@ -282,7 +282,7 @@ class TestAlertEmitter:
             rule_id="rule-123",
             severity="major",
             regulation_name="EU AI Act",
-            section_code="Article15.3"
+            section_code="Article11"
         )
         
         # Проверяем, что сообщение отправлено

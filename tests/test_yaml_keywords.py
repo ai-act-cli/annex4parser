@@ -16,7 +16,7 @@ class TestYAMLKeywordMapping:
         yaml_content = """
 technical documentation: AnnexIV
 risk assessment: Article9.2
-human oversight: Article17.1
+human oversight: Article14
 conformity assessment: AnnexIV.1
 """
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
@@ -34,7 +34,7 @@ conformity assessment: AnnexIV.1
             assert 'technical documentation' in keywords
             assert keywords['technical documentation'] == 'AnnexIV'
             assert keywords['risk assessment'] == 'Article9.2'
-            assert keywords['human oversight'] == 'Article17.1'
+            assert keywords['human oversight'] == 'Article14'
             assert keywords['conformity assessment'] == 'AnnexIV.1'
             
         finally:
@@ -190,8 +190,8 @@ invalid: yaml: content:
         """Тест нормализации регистра ключевых слов."""
         yaml_content = """
 Technical Documentation: AnnexIV
-RISK ASSESSMENT: Article9.2  
-Human Oversight: Article17.1
+RISK ASSESSMENT: Article9.2
+Human Oversight: Article14
 """
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(yaml_content)

@@ -29,26 +29,34 @@ DEFAULT_KEYWORD_MAP = {
     "statistical properties": "Article10.1",
     
     # Documentation
-    "documentation": "Article15.3",
-    "technical documentation": "Article15.3",
-    "compliance documentation": "Article15.3",
-    
+    "documentation": "Article11",
+    "technical documentation": "Article11",
+    "compliance documentation": "Article11",
+
     # Record Keeping
-    "record keeping": "Article15.4",
-    "logs": "Article15.4",
-    "audit trail": "Article15.4",
-    "system logs": "Article15.4",
-    
+    "record keeping": "Article12",
+    "logs": "Article12",
+    "audit trail": "Article12",
+    "system logs": "Article12",
+
     # Accuracy and Cybersecurity
-    "accuracy": "Article16.1",
-    "robustness": "Article16.1",
-    "cybersecurity": "Article16.1",
-    "accuracy metrics": "Article16.1",
-    
+    "accuracy": "Article15",
+    "robustness": "Article15",
+    "cybersecurity": "Article15",
+    "accuracy metrics": "Article15",
+
     # Human Oversight
-    "human oversight": "Article17.1",
-    "human machine interface": "Article17.1",
-    "human control": "Article17.1",
+    "human oversight": "Article14",
+    "human machine interface": "Article14",
+    "human control": "Article14",
+
+    # Quality Management
+    "quality management": "Article17",
+    "quality assurance": "Article17",
+    "quality control": "Article17",
+
+    # Post-market monitoring
+    "post-market monitoring plan": "Article72",
 }
 
 def _load_keywords_from_yaml() -> dict[str, str]:

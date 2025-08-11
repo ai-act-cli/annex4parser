@@ -20,6 +20,7 @@ from sqlalchemy import (
     Boolean,
     Integer,
     JSON,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -36,8 +37,12 @@ def generate_uuid():
 
 class Regulation(Base):
     __tablename__ = "regulations"
+    __table_args__ = (
+        UniqueConstraint("celex_id", "version", name="uq_regulation_celex_version"),
+    )
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
+    celex_id = Column(String(20), nullable=False)
     version = Column(String(50), nullable=False)
     effective_date = Column(DateTime, nullable=True)
     source_url = Column(Text, nullable=True)

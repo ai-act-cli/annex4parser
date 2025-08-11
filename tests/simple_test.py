@@ -25,7 +25,7 @@ def test_keyword_matching():
     print(f"Found matches: {matches}")
     
     # Check if expected matches are found
-    expected_matches = ['Article9.2', 'Article15.3']
+    expected_matches = ['Article9.2', 'Article11']
     for expected in expected_matches:
         if expected in matches:
             print(f"✓ Found {expected}")
@@ -50,7 +50,7 @@ def test_database_models():
         session = Session()
         
         # Create test data
-        reg = Regulation(name='EU AI Act', version='1.0')
+        reg = Regulation(name='EU AI Act', celex_id='32024R1689', version='1.0')
         session.add(reg)
         session.flush()
         
@@ -91,7 +91,7 @@ def test_semantic_matching():
         session = Session()
         
         # Create test data
-        reg = Regulation(name='EU AI Act', version='1.0')
+        reg = Regulation(name='EU AI Act', celex_id='32024R1689', version='1.0')
         session.add(reg)
         session.flush()
         

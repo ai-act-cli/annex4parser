@@ -69,9 +69,9 @@ with Session() as session:
 Document: risk_assessment.pdf
 Found matches: 4
 - Article9.2: 0.85 (Risk Management)
-- Article10.1: 0.72 (Data Governance)  
-- Article15.3: 0.68 (Documentation)
-- Article16.1: 0.45 (Accuracy & Security)
+- Article10.1: 0.72 (Data Governance)
+- Article11: 0.68 (Documentation)
+- Article15: 0.45 (Accuracy & Security)
 ```
 
 ## 🔧 Customization for Your Needs
