@@ -401,7 +401,7 @@ class RegulationMonitorV2:
                 )
                 logger.info(f"Updated regulation from HTML source {source.id}")
             self._log_source_operation(
-                source.id, "success", content_hash, len(text), None
+                source.id, "success", content_hash, len(text), None, "html"
             )
             
             return {"type": "html", "source_id": source.id}
@@ -416,7 +416,7 @@ class RegulationMonitorV2:
             logger.error(
                 f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
             )
-            self._log_source_operation(source.id, "error", None, None, str(e))
+            self._log_source_operation(source.id, "error", None, None, str(e), "html")
             raise
     
     async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, query: str) -> Optional[Dict]:
