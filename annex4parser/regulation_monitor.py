@@ -304,7 +304,7 @@ class RegulationMonitor:
         # Retrieve the most recent previous version (if any)
         previous_reg = (
             self.db.query(Regulation)
-            .filter(Regulation.name == name)
+            .filter(Regulation.celex_id == celex_id)
             .order_by(Regulation.version.desc())
             .first()
         )
@@ -378,6 +378,15 @@ class RegulationMonitor:
                         doc = self.db.get(Document, mapping.document_id)
                         if doc:
                             doc.compliance_status = "outdated"
+                            doc.last_modified = datetime.utcnow()
+                            doc_alert = ComplianceAlert(
+                                document_id=doc.id,
+                                rule_id=new_rule.id,
+                                alert_type="document_outdated",
+                                priority="high",
+                                message=f"Document {doc.filename or doc.id} outdated due to changes in {rule_data['section_code']}",
+                            )
+                            self.db.add(doc_alert)
 
         self.db.commit()
         return reg

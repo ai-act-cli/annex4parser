@@ -56,17 +56,19 @@ def test_alert_and_doc_outdated(test_db, eli_rdf_v1, eli_rdf_v2, test_config_pat
         name="EU AI Act",
         version="2.0",
         text="Article 11 Documentation requirements\n\nProviders shall establish and maintain comprehensive technical documentation for high-risk AI systems in accordance with this Regulation, including detailed risk assessments and mitigation strategies.",
-        url="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1689"
+        url="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1689",
+        celex_id="32024R1689",
     )
     print(f"Regulation created/updated: {regulation.name} (ID: {regulation.id})")
 
-    # Проверяем, что алерт создан и документ помечен как устаревший
-    alert = test_db.query(ComplianceAlert).first()
-    print(f"Alert found: {alert}")
-    if alert:
-        print(f"Alert priority: {alert.priority}")
-        print(f"Alert message: {alert.message}")
-        assert alert.priority == "urgent"  # Updated: severity mapping changed to urgent for high/critical/major
+    # Проверяем, что алерты созданы и документ помечен как устаревший
+    alerts = test_db.query(ComplianceAlert).all()
+    print(f"Alerts found: {alerts}")
+    types = {a.alert_type for a in alerts}
+    assert "rule_updated" in types
+    assert "document_outdated" in types
+    rule_alert = next(a for a in alerts if a.alert_type == "rule_updated")
+    assert rule_alert.priority == "urgent"
     
     updated_doc = test_db.get(Document, doc.id)
     print(f"Document compliance status: {updated_doc.compliance_status}")

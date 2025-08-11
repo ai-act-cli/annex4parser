@@ -44,10 +44,15 @@ def test_update_regulation_creates_alerts(monkeypatch):
     update_regulation(session, 'EU AI Act', '2', 'http://example.com')
 
     alerts = session.query(ComplianceAlert).all()
-    assert len(alerts) == 1
-    alert = alerts[0]
-    assert alert.document_id == doc.id
+    assert len(alerts) == 2
+    types = {a.alert_type for a in alerts}
+    assert "rule_updated" in types
+    assert "document_outdated" in types
+    rule_alert = next(a for a in alerts if a.alert_type == "rule_updated")
+    doc_alert = next(a for a in alerts if a.alert_type == "document_outdated")
     new_rule = session.query(Rule).filter_by(section_code='Article9.2', version='2').first()
-    assert alert.rule_id == new_rule.id
+    assert rule_alert.rule_id == new_rule.id
+    assert rule_alert.document_id == doc.id
+    assert doc_alert.document_id == doc.id
     # document should be marked outdated
     assert session.get(Document, doc.id).compliance_status == 'outdated'

@@ -44,6 +44,8 @@ class Regulation(Base):
     name = Column(String(255), nullable=False)
     celex_id = Column(String(20), nullable=False)
     version = Column(String(50), nullable=False)
+    expression_version = Column(String(50), nullable=True)
+    work_date = Column(DateTime, nullable=True)
     effective_date = Column(DateTime, nullable=True)
     source_url = Column(Text, nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow)

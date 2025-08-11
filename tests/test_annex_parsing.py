@@ -129,7 +129,7 @@ class TestAnnexParsing:
         
         # Проверяем Articles
         article_rules = [r for r in rules if r['section_code'].startswith('Article')]
-        assert len(article_rules) == 2
+        assert len(article_rules) == 4  # Article9, Article9.1, Article15, Article15.1
         assert any(r['section_code'] == 'Article9' for r in article_rules)
         assert any(r['section_code'] == 'Article15' for r in article_rules)
         
