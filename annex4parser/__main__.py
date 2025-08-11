@@ -5,8 +5,8 @@ from the command line. It accepts a list of source URLs
 and will print out a summary of detected changes. For example:
 
 ```sh
-python -m annex4parser \
-    --source https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:32024R1689 \
+    python -m annex4parser \
+        --source https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX%3A32024R1689 \
     --source https://www.europarl.europa.eu/doceo/document/TA-9-2024-0138_EN.html
 ```
 

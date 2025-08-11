@@ -331,9 +331,14 @@ async def test_integration_workflow(test_db, test_config_path):
         monitor = RegulationMonitorV2(test_db, config_path=test_config_path)
         
         # Мокаем внешние вызовы
-        with patch('annex4parser.regulation_monitor_v2.fetch_latest_eli') as mock_eli, \
-             patch('annex4parser.regulation_monitor_v2.fetch_rss_feed', new_callable=AsyncMock) as mock_rss:
-            mock_eli.return_value = {
+        with patch(
+            'annex4parser.regulation_monitor_v2.RegulationMonitorV2._execute_sparql_query',
+            new_callable=AsyncMock
+        ) as mock_sparql, patch(
+            'annex4parser.regulation_monitor_v2.fetch_rss_feed',
+            new_callable=AsyncMock
+        ) as mock_rss:
+            mock_sparql.return_value = {
                 "title": "Test Regulation",
                 "version": "1.0",
                 "text": "Article 15.3 Test content."
@@ -341,9 +346,7 @@ async def test_integration_workflow(test_db, test_config_path):
             mock_rss.return_value = [
                 ("https://example.com/1", "hash1", "Test RSS Entry")
             ]
-            # Запускаем обновление
             stats = await monitor.update_all()
-            # Проверяем статистику
             assert stats["eli_sparql"] >= 0
             assert stats["rss"] >= 0
             assert stats["errors"] == 0

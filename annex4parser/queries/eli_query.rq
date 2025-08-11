@@ -12,3 +12,4 @@ SELECT ?title ?date ?version ?text WHERE {
   FILTER(?celex_id = "32024R1689")
 }
 ORDER BY DESC(?date) LIMIT 1
+

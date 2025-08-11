@@ -46,6 +46,7 @@ sources:
   # Пример рабочего RSS Newsroom (подставьте свой DG/тип)
   - id: ec_newsroom_example
     type: rss
+    active: false
     url: "https://ec.europa.eu/newsroom/clima/items/itemType/1041?format=rss"
     freq: "6h"
     description: "EC Newsroom — новости (пример)"
@@ -75,7 +76,7 @@ monitoring:
     jitter: true
     
   # User-Agent settings
-  user_agent: "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
+  user_agent: "Mozilla/5.0 (X11; Linux x86_64) Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
   
   # Caching settings
   cache:

@@ -93,117 +93,103 @@ async def _fetch_robots(session: aiohttp.ClientSession, domain: str) -> Optional
 
 
 async def check_robots_allowed(
-    session: aiohttp.ClientSession, 
-    url: str, 
-    user_agent: str = DEFAULT_USER_AGENT
-) -> bool:
-    """Проверяет, разрешен ли доступ к URL согласно robots.txt."""
+    session: aiohttp.ClientSession,
+    url: str,
+    user_agent: str = DEFAULT_USER_AGENT,
+    return_rule: bool = False,
+):
+    """Проверяет, разрешен ли доступ к URL согласно robots.txt.
+
+    Если ``return_rule`` равно ``True``, возвращает кортеж ``(allowed, rule)`` где
+    ``rule`` — совпавшее правило из robots.txt.
+    """
     parsed_url = urlparse(url)
     domain = parsed_url.netloc
-    
+
     # Загружаем robots.txt
     robots_content = await _fetch_robots(session, domain)
     if not robots_content:
-        # Если robots.txt не найден, разрешаем доступ
-        return True
-    
+        return (True, None) if return_rule else True
+
     # Парсим robots.txt
     parser = RobotsParser(user_agent)
     parser.parse(robots_content)
-    
+
     # Проверяем правила для нашего user-agent
     path = parsed_url.path
-    
-    # Получаем правила для нашего user-agent или общие правила
+
     agent_rules = parser.rules.get(user_agent, [])
     general_rules = parser.rules.get('*', [])
     all_rules = agent_rules + general_rules
-    
-    # Добавляем отладочную информацию
+
     logger.debug(f"Checking path: {path}")
     logger.debug(f"Rules: {all_rules}")
-    
-    # Находим все подходящие правила
+
     matching_rules = []
     for rule in all_rules:
         if _matches_rule(path, rule):
             matching_rules.append(rule)
             logger.debug(f"Rule matched: {rule}")
-    
+
     if not matching_rules:
-        logger.debug("No rules matched, allowing by default")
-        return True
-    
+        return (True, None) if return_rule else True
+
     # Сортируем правила по специфичности
-    # Для правила Allow: / (пустой путь) считаем специфичность 0
-    # Для других правил считаем специфичность по длине пути
     def get_specificity(rule):
         path = rule['path']
-        # Нормализуем путь так же, как в _matches_rule
         normalized_path = path.rstrip('/')
         if normalized_path.startswith('/'):
             normalized_path = normalized_path[1:]
-        
-        # Allow: / после нормализации становится пустым, специфичность 0
         if normalized_path == '':
             return 0
         return len(normalized_path)
-    
+
     matching_rules.sort(key=get_specificity, reverse=True)
-    
-    # Берем самое специфичное правило
     most_specific_rule = matching_rules[0]
     logger.debug(f"Most specific rule: {most_specific_rule}")
-    logger.debug(f"All matching rules sorted by specificity: {[(r, get_specificity(r)) for r in matching_rules]}")
-    
-    return most_specific_rule['type'] == 'allow'
+    allowed = most_specific_rule['type'] == 'allow'
+
+    if return_rule:
+        return allowed, most_specific_rule
+    return allowed
 
 
 def _matches_rule(path: str, rule: Dict) -> bool:
     """Проверяет, соответствует ли путь правилу."""
     rule_path = rule['path']
-    
+
     logger.debug(f"_matches_rule called with path='{path}', rule_path='{rule_path}'")
-    
+
     if not rule_path:
         return False
-    
-    # Нормализуем пути
-    path = path.rstrip('/')
-    rule_path = rule_path.rstrip('/')
-    
+
+    # Удаляем query-параметры и нормализуем слэши
+    path = path.split('?')[0].strip('/')
+    rule_path = rule_path.split('?')[0].strip('/')
+
     logger.debug(f"After normalization: path='{path}', rule_path='{rule_path}'")
-    
-    # Если правило начинается с /, убираем его для сравнения
-    if rule_path.startswith('/'):
-        rule_path = rule_path[1:]
-    if path.startswith('/'):
-        path = path[1:]
-    
-    logger.debug(f"After removing leading slashes: path='{path}', rule_path='{rule_path}'")
-    
-    # Специальная обработка для правила Allow: /
+
     if rule_path == '':
         logger.debug("Rule path is empty after processing, this matches everything")
         return True
-    
-    # Если правило пустое, оно не соответствует ничему
-    if not rule_path:
-        logger.debug("Rule path is empty, returning False")
-        return False
-    
-    # Проверяем точное совпадение или префикс
-    if path == rule_path or path.startswith(rule_path + '/'):
-        logger.debug(f"Rule {rule_path} matches path {path}")
-        return True
-    
-    # Поддержка wildcards
+
     if '*' in rule_path:
-        pattern = rule_path.replace('*', '.*')
+        pattern = '^' + re.escape(rule_path).replace('\\*', '.*') + '(/|$)'
         if re.match(pattern, path):
             logger.debug(f"Wildcard rule {rule_path} matches path {path}")
             return True
-    
+
+    path_segments = path.split('/') if path else []
+    rule_segments = rule_path.split('/') if rule_path else []
+
+    if len(path_segments) < len(rule_segments):
+        logger.debug(f"Path '{path}' shorter than rule '{rule_path}'")
+        return False
+
+    if path_segments[:len(rule_segments)] == rule_segments:
+        logger.debug(f"Rule {rule_path} matches path {path}")
+        return True
+
     logger.debug(f"Rule {rule_path} does not match path {path}")
     return False
 
