@@ -26,10 +26,10 @@ UA = (
 # Базовый SPARQL запрос в CDM для получения последней версии документа
 BASE_QUERY = """
 PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
-SELECT ?date ?version ?text ?title WHERE {{
+SELECT ?date ?version ?text ?title ?item ?format WHERE {{
   ?w cdm:resource_legal_id_celex "{celex_id}" .
-  ?expr cdm:expression_belongs_to_work ?w .
-  ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/ENG> .
+  ?expr cdm:expression_belongs_to_work ?w ;
+        cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/ENG> .
   OPTIONAL {{ ?expr cdm:expression_title ?title }}
   OPTIONAL {{ ?w cdm:work_date_document ?date }}
   OPTIONAL {{ ?expr cdm:expression_version ?version }}
@@ -37,6 +37,11 @@ SELECT ?date ?version ?text ?title WHERE {{
     ?expr cdm:expression_legal_resource ?res .
     ?res cdm:legal_resource_legal_text ?text
   }}
+  ?m  cdm:manifestation_manifests_expression ?expr ;
+      cdm:manifestation_type ?format .
+  OPTIONAL {{ ?item1 cdm:item_belongs_to_manifestation ?m }}
+  OPTIONAL {{ ?m     cdm:manifestation_has_item ?item2 }}
+  BIND(COALESCE(?item1, ?item2) AS ?item)
 }}
 ORDER BY DESC(?date)
 LIMIT 1
@@ -95,7 +100,9 @@ async def fetch_latest_eli(
                 "date": result.get("date", {}).get("value"),
                 "version": result.get("version", {}).get("value"),
                 "text": result.get("text", {}).get("value"),
-                "title": result.get("title", {}).get("value", "Unknown Title")
+                "title": result.get("title", {}).get("value", "Unknown Title"),
+                "item_url": result.get("item", {}).get("value"),
+                "format": result.get("format", {}).get("value"),
             }
             
     except aiohttp.ClientError as e:

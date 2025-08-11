@@ -251,8 +251,14 @@ class RegulationMonitorV2:
                 version = datetime.utcnow().strftime("%Y%m%d%H%M")
                 content_hash = hashlib.sha256(txt.encode()).hexdigest()
                 has_changed = self._has_content_changed(source.id, content_hash)
-                if has_changed or not self._regulation_exists(title):
-                    self._ingest_regulation_text(name=title, version=version, text=txt, url=source.url, celex_id=celex_id)
+                if has_changed:
+                    self._ingest_regulation_text(
+                        name=title,
+                        version=version,
+                        text=txt,
+                        url=url,
+                        celex_id=celex_id,
+                    )
                 self._log_source_operation(source.id, "success", content_hash, len(txt), None, fetch_mode)
                 return {"type": "eli_sparql", "source_id": source.id}
 
@@ -262,14 +268,18 @@ class RegulationMonitorV2:
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
             name = eli_data.get('title', f"Regulation {celex_id}") if eli_data else f"Regulation {celex_id}"
-            version = eli_data.get('version', datetime.utcnow().strftime("%Y%m%d%H%M")) if eli_data else datetime.utcnow().strftime("%Y%m%d%H%M")
-            if has_changed or not self._regulation_exists(name):
+            expr_version = eli_data.get('version') if eli_data else None
+            date = eli_data.get('date') if eli_data else None
+            version = expr_version or date or datetime.utcnow().strftime("%Y%m%d%H%M")
+            if has_changed:
                 regulation = self._ingest_regulation_text(
                     name=name,
                     version=version,
                     text=txt,
-                    url=source.url,
-                    celex_id=celex_id
+                    url=eli_data.get('item_url') if eli_data and eli_data.get('item_url') else f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}",
+                    celex_id=celex_id,
+                    expression_version=expr_version,
+                    work_date=date,
                 )
                 logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
             else:
@@ -355,15 +365,12 @@ class RegulationMonitorV2:
     ) -> Optional[Dict]:
         """Обработать HTML источник (fallback)."""
         try:
-            # Используем существующую логику из regulation_monitor.py
-            from .regulation_monitor import fetch_regulation_text
-            
             text = await self._fetch_html_text(session, source.url)
             content_hash = hashlib.sha256(text.encode()).hexdigest()
             has_changed = self._has_content_changed(source.id, content_hash)
-            name = f"Regulation from {source.id}"
             celex_id = self._extract_celex_id(source.url) or "UNKNOWN"
-            if has_changed or not self._regulation_exists(name):
+            name = f"Regulation {celex_id}"
+            if has_changed:
                 regulation = self._ingest_regulation_text(
                     name=name,
                     version=datetime.utcnow().strftime("%Y%m%d%H%M"),
@@ -464,10 +471,6 @@ class RegulationMonitorV2:
         logger.info("Content has not changed")
         return False
 
-    def _regulation_exists(self, name: str) -> bool:
-        """Проверить, существует ли регуляция с данным именем."""
-        return self.db.query(Regulation.id).filter_by(name=name).first() is not None
-    
     def _log_source_operation(
         self,
         source_id: str,
@@ -495,7 +498,9 @@ class RegulationMonitorV2:
         version: str,
         text: str,
         url: str,
-        celex_id: str = "UNKNOWN"
+        celex_id: str = "UNKNOWN",
+        expression_version: Optional[str] = None,
+        work_date: Optional[str] = None,
     ) -> Regulation:
         """Ингестировать текст регуляции в базу данных."""
         from .regulation_monitor import parse_rules
@@ -509,10 +514,19 @@ class RegulationMonitorV2:
             .first()
         )
         
+        work_date_dt = None
+        if work_date:
+            try:
+                work_date_dt = datetime.fromisoformat(work_date)
+            except ValueError:
+                work_date_dt = None
+
         if existing_regulation:
             # Обновляем существующую регуляцию
             regulation = existing_regulation
             regulation.version = version
+            regulation.expression_version = expression_version
+            regulation.work_date = work_date_dt
             regulation.last_updated = datetime.utcnow()
             regulation.source_url = url
         else:
@@ -521,8 +535,10 @@ class RegulationMonitorV2:
                 name=name,
                 celex_id=celex_id,
                 version=version,
+                expression_version=expression_version,
+                work_date=work_date_dt,
                 source_url=url,
-                effective_date=datetime.utcnow(),
+                effective_date=work_date_dt or datetime.utcnow(),
                 last_updated=datetime.utcnow(),
                 status="active"
             )
@@ -584,6 +600,14 @@ class RegulationMonitorV2:
                         if doc:
                             doc.compliance_status = "outdated"
                             doc.last_modified = datetime.utcnow()
+                            doc_alert = ComplianceAlert(
+                                document_id=doc.id,
+                                rule_id=existing_rule.id,
+                                alert_type="document_outdated",
+                                priority="high",
+                                message=f"Document {doc.filename or doc.id} outdated due to changes in {rule_data['section_code']}",
+                            )
+                            self.db.add(doc_alert)
             else:
                 # Создаём новое правило (учтём parent_section_code, если есть)
                 parent_id = None
