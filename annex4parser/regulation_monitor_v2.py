@@ -491,6 +491,28 @@ class RegulationMonitorV2:
         )
         self.db.add(log)
         self.db.commit()
+
+    def _relink_children(
+        self,
+        parent: Rule,
+        old_code: str,
+        new_code: str,
+        code_to_rule: Dict[str, Rule],
+    ) -> None:
+        """Propagate section code change to all descendants."""
+        from .regulation_monitor import canonicalize
+
+        children = self.db.query(Rule).filter_by(parent_rule_id=parent.id).all()
+        for child in children:
+            child_code = canonicalize(child.section_code)
+            if not child_code.startswith(f"{old_code}."):
+                continue
+            new_child_code = canonicalize(new_code + child_code[len(old_code):])
+            if child_code in code_to_rule:
+                del code_to_rule[child_code]
+            child.section_code = new_child_code
+            code_to_rule[new_child_code] = child
+            self._relink_children(child, child_code, new_child_code, code_to_rule)
     
     def _ingest_regulation_text(
         self,
@@ -503,7 +525,7 @@ class RegulationMonitorV2:
         work_date: Optional[str] = None,
     ) -> Regulation:
         """Ингестировать текст регуляции в базу данных."""
-        from .regulation_monitor import parse_rules
+        from .regulation_monitor import parse_rules, canonicalize
         from .legal_diff import LegalDiffAnalyzer
         
         # Проверяем, есть ли уже регуляция с таким CELEX ID
@@ -546,55 +568,89 @@ class RegulationMonitorV2:
         
         self.db.flush()
 
-        # Парсим правила
+
+        # Парсим правила и формируем карту существующих секций
         rules_data = parse_rules(text)
         logger.info("Parsed rules: %d", len(rules_data))
         analyzer = LegalDiffAnalyzer()
-        
+
+        existing_rules = (
+            self.db.query(Rule)
+            .filter_by(regulation_id=regulation.id)
+            .all()
+        )
+        code_to_rule: Dict[str, Rule] = {}
+        for r in existing_rules:
+            canon = canonicalize(r.section_code)
+            if r.section_code != canon:
+                r.section_code = canon
+            code_to_rule[canon] = r
+
         for rule_data in rules_data:
-            # Проверяем, есть ли уже правило с таким section_code
-            existing_rule = (
-                self.db.query(Rule)
-                .filter_by(
-                    regulation_id=regulation.id,
-                    section_code=rule_data["section_code"]
+            section_code = canonicalize(rule_data["section_code"])
+            parent_code = canonicalize(rule_data.get("parent_section_code")) if rule_data.get("parent_section_code") else None
+
+            existing_rule = code_to_rule.get(section_code)
+            if not existing_rule:
+                existing_rule = (
+                    self.db.query(Rule)
+                    .filter_by(regulation_id=regulation.id, section_code=section_code)
+                    .first()
                 )
-                .first()
-            )
-            
+                if existing_rule:
+                    code_to_rule[section_code] = existing_rule
+
             if existing_rule:
-                # Анализируем изменения
                 change = analyzer.analyze_changes(
                     existing_rule.content or "",
                     rule_data["content"],
-                    rule_data["section_code"]
+                    section_code,
                 )
-                
-                # Обновляем правило
+
                 existing_rule.content = rule_data["content"]
                 existing_rule.title = rule_data["title"]
                 existing_rule.version = version
                 existing_rule.last_modified = datetime.utcnow()
-                
-                # Создаём алерт если есть значительные изменения
+                old_code = existing_rule.section_code
+                if old_code != section_code:
+                    existing_rule.section_code = section_code
+                    if old_code in code_to_rule:
+                        del code_to_rule[old_code]
+                    code_to_rule[section_code] = existing_rule
+                    self._relink_children(existing_rule, old_code, section_code, code_to_rule)
+                else:
+                    existing_rule.section_code = section_code
+                    code_to_rule[section_code] = existing_rule
+
+                if parent_code and existing_rule.parent_rule_id is None:
+                    parent = code_to_rule.get(parent_code)
+                    if not parent:
+                        parent = (
+                            self.db.query(Rule)
+                            .filter_by(regulation_id=regulation.id, section_code=parent_code)
+                            .first()
+                        )
+                        if parent:
+                            code_to_rule[parent_code] = parent
+                    if parent:
+                        existing_rule.parent_rule_id = parent.id
+
                 if change.severity in ["high", "critical", "major"]:
-                    # map severity -> enum priority
                     prio = "urgent" if change.severity in ["high", "critical", "major"] else "medium"
                     alert = ComplianceAlert(
                         rule_id=existing_rule.id,
                         alert_type="rule_updated",
                         priority=prio,
-                        message=f"Rule {rule_data['section_code']} updated: {change.change_type} - {analyzer.get_change_summary(change)}"
+                        message=f"Rule {section_code} updated: {change.change_type} - {analyzer.get_change_summary(change)}",
                     )
                     self.db.add(alert)
-                    
-                    # Помечаем связанные документы как устаревшие
+
                     mappings = (
                         self.db.query(DocumentRuleMapping)
                         .filter_by(rule_id=existing_rule.id)
                         .all()
                     )
-                    
+
                     for mapping in mappings:
                         doc = self.db.get(Document, mapping.document_id)
                         if doc:
@@ -605,34 +661,63 @@ class RegulationMonitorV2:
                                 rule_id=existing_rule.id,
                                 alert_type="document_outdated",
                                 priority="high",
-                                message=f"Document {doc.filename or doc.id} outdated due to changes in {rule_data['section_code']}",
+                                message=f"Document {doc.filename or doc.id} outdated due to changes in {section_code}",
                             )
                             self.db.add(doc_alert)
             else:
-                # Создаём новое правило (учтём parent_section_code, если есть)
                 parent_id = None
-                parent_code = rule_data.get("parent_section_code")
                 if parent_code:
-                    parent = (
-                        self.db.query(Rule)
-                        .filter_by(regulation_id=regulation.id, section_code=parent_code)
-                        .first()
-                    )
+                    parent = code_to_rule.get(parent_code)
+                    if not parent:
+                        parent = (
+                            self.db.query(Rule)
+                            .filter_by(regulation_id=regulation.id, section_code=parent_code)
+                            .first()
+                        )
+                        if parent:
+                            code_to_rule[parent_code] = parent
                     parent_id = parent.id if parent else None
 
                 rule = Rule(
                     regulation_id=regulation.id,
-                    section_code=rule_data["section_code"],
+                    section_code=section_code,
                     title=rule_data["title"],
                     content=rule_data["content"],
                     risk_level="medium",
                     version=version,
                     effective_date=datetime.utcnow(),
                     last_modified=datetime.utcnow(),
-                    parent_rule_id=parent_id
+                    parent_rule_id=parent_id,
                 )
                 self.db.add(rule)
-        
+                self.db.flush()
+                code_to_rule[section_code] = rule
+
+        # Финальный проход для связывания сирот
+        self.db.flush()
+        orphans = (
+            self.db.query(Rule)
+            .filter_by(regulation_id=regulation.id, parent_rule_id=None)
+            .all()
+        )
+        for r in orphans:
+            canon = canonicalize(r.section_code)
+            if r.section_code != canon:
+                r.section_code = canon
+            if "." in canon:
+                p_code = canon.rsplit(".", 1)[0]
+                parent = code_to_rule.get(p_code)
+                if not parent:
+                    parent = (
+                        self.db.query(Rule)
+                        .filter_by(regulation_id=regulation.id, section_code=p_code)
+                        .first()
+                    )
+                    if parent:
+                        code_to_rule[p_code] = parent
+                if parent:
+                    r.parent_rule_id = parent.id
+
         self.db.commit()
         return regulation
     

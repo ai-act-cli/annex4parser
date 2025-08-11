@@ -1,13 +1,14 @@
 import sys
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from annex4parser.models import Base, Document, DocumentRuleMapping, Regulation, Rule, ComplianceAlert
-from annex4parser.regulation_monitor import update_regulation
+from annex4parser.regulation_monitor import update_regulation, canonicalize, parse_rules
 
 def setup_db():
     engine = create_engine('sqlite:///:memory:')
@@ -15,16 +16,44 @@ def setup_db():
     Session = sessionmaker(bind=engine)
     return Session()
 
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (" Article 6 (1) ", "Article6.1"),
+        ("Article6(1)(i)", "Article6.1.i"),
+        ("AnnexIV(2)a", "AnnexIV.2.a"),
+        ("Annex IV (2) (a)", "AnnexIV.2.a"),
+        ("Article10a(1)", "Article10a.1"),
+        ("Article6..1", "Article6.1"),
+        (".Article6.1.", "Article6.1"),
+        ("", ""),
+        (None, None),
+        ("()", "()"),
+        ("???", "???"),
+    ],
+)
+def test_canonicalize(raw, expected):
+    assert canonicalize(raw) == expected
+
+
+def test_parse_rules_handles_lettered_article():
+    text = "Article 10a Title\n1. First paragraph\n"
+    parsed = parse_rules(text)
+    codes = {r["section_code"] for r in parsed}
+    assert "Article10a" in codes
+    assert "Article10a.1" in codes
+
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
 
     old_text = (
-        "Article 9.2 Risk management\nOld text.\n"
-        "Article 10.1 Data governance\nSame text.\n"
+        "Article 9 Risk management\n1. Intro\n2. Old text.\n"
+        "Article 10 Data governance\n1. Same text.\n"
     )
     new_text = (
-        "Article 9.2 Risk management\nUpdated text.\n"
-        "Article 10.1 Data governance\nSame text.\n"
+        "Article 9 Risk management\n1. Intro\n2. Updated text.\n"
+        "Article 10 Data governance\n1. Same text.\n"
     )
 
     # first version
