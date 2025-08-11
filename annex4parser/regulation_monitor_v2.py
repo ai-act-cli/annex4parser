@@ -264,9 +264,10 @@ class RegulationMonitorV2:
                 title = f"Regulation {celex_id}"
                 version = datetime.utcnow().strftime("%Y%m%d%H%M")
                 content_hash = hashlib.sha256(txt.encode()).hexdigest()
-                self._log_source_operation(source.id, "success", content_hash, len(txt), None)
-                if self._has_content_changed(source.id, content_hash):
+                has_changed = self._has_content_changed(source.id, content_hash)
+                if has_changed or not self._regulation_exists(title):
                     self._ingest_regulation_text(name=title, version=version, text=txt, url=source.url)
+                self._log_source_operation(source.id, "success", content_hash, len(txt), None)
                 return {"type": "eli_sparql", "source_id": source.id}
 
             # Если SPARQL есть — берём метаданные, а текст через HTML при надобности
@@ -280,15 +281,10 @@ class RegulationMonitorV2:
             # Сначала проверяем изменения
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
-            # Логируем операцию
-            self._log_source_operation(
-                source.id, "success", content_hash,
-                len(txt), None
-            )
-            # Обновляем регуляцию если есть изменения
-            if has_changed:
+            name = eli_data.get('title', f"Regulation {celex_id}")
+            if has_changed or not self._regulation_exists(name):
                 regulation = self._ingest_regulation_text(
-                    name=eli_data.get('title', f"Regulation {celex_id}"),
+                    name=name,
                     version=eli_data.get('version', datetime.utcnow().strftime("%Y%m%d%H%M")),
                     text=txt,
                     url=source.url
@@ -296,6 +292,10 @@ class RegulationMonitorV2:
                 logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
             else:
                 logger.info("No changes detected, skipping regulation update")
+            self._log_source_operation(
+                source.id, "success", content_hash,
+                len(txt), None
+            )
             return {"type": "eli_sparql", "source_id": source.id}
         except Exception as e:
             body = ""
@@ -378,21 +378,19 @@ class RegulationMonitorV2:
             
             text = await self._fetch_html_text(session, source.url)
             content_hash = hashlib.sha256(text.encode()).hexdigest()
-            
-            # Логируем операцию
-            self._log_source_operation(
-                source.id, "success", content_hash, len(text), None
-            )
-            
-            # Обновляем регуляцию если есть изменения
-            if self._has_content_changed(source.id, content_hash):
+            has_changed = self._has_content_changed(source.id, content_hash)
+            name = f"Regulation from {source.id}"
+            if has_changed or not self._regulation_exists(name):
                 regulation = self._ingest_regulation_text(
-                    name=f"Regulation from {source.id}",
+                    name=name,
                     version=datetime.utcnow().strftime("%Y%m%d%H%M"),
                     text=text,
                     url=source.url
                 )
                 logger.info(f"Updated regulation from HTML source {source.id}")
+            self._log_source_operation(
+                source.id, "success", content_hash, len(text), None
+            )
             
             return {"type": "html", "source_id": source.id}
             
@@ -527,6 +525,10 @@ class RegulationMonitorV2:
             return True
         logger.info("Content has not changed")
         return False
+
+    def _regulation_exists(self, name: str) -> bool:
+        """Проверить, существует ли регуляция с данным именем."""
+        return self.db.query(Regulation.id).filter_by(name=name).first() is not None
     
     def _log_source_operation(
         self, 
@@ -585,9 +587,10 @@ class RegulationMonitorV2:
             self.db.add(regulation)
         
         self.db.flush()
-        
+
         # Парсим правила
         rules_data = parse_rules(text)
+        logger.info("Parsed rules: %d", len(rules_data))
         analyzer = LegalDiffAnalyzer()
         
         for rule_data in rules_data:
