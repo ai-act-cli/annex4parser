@@ -35,15 +35,15 @@ def test_keyword_matching():
         },
         {
             'text': 'We maintain detailed documentation and record keeping for all AI operations.',
-            'expected': ['Article15.3', 'Article15.4']
+            'expected': ['Article11', 'Article12']
         },
         {
             'text': 'Our AI achieves high accuracy and maintains robust cybersecurity measures.',
-            'expected': ['Article16.1']
+            'expected': ['Article15']
         },
         {
             'text': 'Human oversight is maintained throughout all AI system operations.',
-            'expected': ['Article17.1']
+            'expected': ['Article14']
         }
     ]
     
@@ -84,11 +84,11 @@ def test_semantic_matching(test_db, test_regulation):
         },
         {
             'text': 'Technical documentation is maintained for all AI system components.',
-            'expected_sections': ['Article15.3']
+            'expected_sections': ['Article11']
         },
         {
             'text': 'System logs are preserved for audit and compliance purposes.',
-            'expected_sections': ['Article15.4']
+            'expected_sections': ['Article12']
         }
     ]
     
@@ -122,11 +122,11 @@ def test_combined_matching(test_db, test_regulation):
     test_cases = [
         {
             'text': 'Our AI system implements risk management and maintains proper documentation.',
-            'expected_sections': ['Article9.2', 'Article15.3']
+            'expected_sections': ['Article9.2', 'Article11']
         },
         {
             'text': 'Data governance ensures high-quality training datasets with accurate results.',
-            'expected_sections': ['Article10.1', 'Article16.1']
+            'expected_sections': ['Article10.1', 'Article15']
         }
     ]
     
@@ -160,11 +160,11 @@ def test_document_ingestion(test_db, test_regulation):
     test_documents = [
         {
             'content': 'Our AI system implements comprehensive risk management procedures. We maintain detailed documentation and ensure data governance protocols are followed.',
-            'expected_mappings': 3  # Should map to Article9.2, Article15.3, Article10.1
+            'expected_mappings': 3  # Should map to Article9.2, Article11, Article10.1
         },
         {
             'content': 'The system achieves high accuracy and maintains robust cybersecurity measures. Human oversight is maintained throughout operations.',
-            'expected_mappings': 2  # Should map to Article16.1, Article17.1
+            'expected_mappings': 2  # Should map to Article15, Article14
         }
     ]
     
@@ -234,6 +234,7 @@ def test_regulation_monitoring(test_db, test_regulation):
         # Test that we can create a new regulation
         reg = Regulation(
             name='Test Regulation',
+            celex_id='TEST123',
             version='2.0',
             source_url='https://example.com/test',
             status='active'

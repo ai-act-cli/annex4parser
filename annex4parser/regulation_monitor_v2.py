@@ -220,38 +220,7 @@ class RegulationMonitorV2:
             endpoint = extra.get(
                 "endpoint", "https://publications.europa.eu/webapi/rdf/sparql"
             )
-            sparql_file = extra.get("sparql")
-            # Загружаем SPARQL запрос
-            if sparql_file and sparql_file.startswith('file:'):
-                query_path = Path(sparql_file.replace('file:', ''))
-                if query_path.exists():
-                    with open(query_path, 'r') as f:
-                        sparql_query = f.read()
-                else:
-                    sparql_query = f"""
-                    PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
-                    SELECT ?title ?date ?version ?text WHERE {{
-                      ?work cdm:work_celex_number \"{celex_id}\" .
-                      ?work cdm:resource_legal_resource_has_title ?title .
-                      ?work cdm:work_date_document ?date .
-                      ?work cdm:work_version ?version .
-                      OPTIONAL {{ ?work cdm:resource_legal_resource_has_extracted_text ?text }}
-                    }}
-                    LIMIT 1
-                    """
-            else:
-                sparql_query = f"""
-                PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
-                SELECT ?title ?date ?version ?text WHERE {{
-                  ?work cdm:work_celex_number \"{celex_id}\" .
-                  ?work cdm:resource_legal_resource_has_title ?title .
-                  ?work cdm:work_date_document ?date .
-                  ?work cdm:work_version ?version .
-                  OPTIONAL {{ ?work cdm:resource_legal_resource_has_extracted_text ?text }}
-                }}
-                LIMIT 1
-                """
-            eli_data = await self._execute_sparql_query(session, endpoint, sparql_query)
+            eli_data = await self._execute_sparql_query(session, endpoint, celex_id)
             logger.info(f"SPARQL data received: {eli_data is not None}")
 
             fetch_mode = "sparql_text"
@@ -283,7 +252,7 @@ class RegulationMonitorV2:
                 content_hash = hashlib.sha256(txt.encode()).hexdigest()
                 has_changed = self._has_content_changed(source.id, content_hash)
                 if has_changed or not self._regulation_exists(title):
-                    self._ingest_regulation_text(name=title, version=version, text=txt, url=source.url)
+                    self._ingest_regulation_text(name=title, version=version, text=txt, url=source.url, celex_id=celex_id)
                 self._log_source_operation(source.id, "success", content_hash, len(txt), None, fetch_mode)
                 return {"type": "eli_sparql", "source_id": source.id}
 
@@ -299,7 +268,8 @@ class RegulationMonitorV2:
                     name=name,
                     version=version,
                     text=txt,
-                    url=source.url
+                    url=source.url,
+                    celex_id=celex_id
                 )
                 logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
             else:
@@ -392,12 +362,14 @@ class RegulationMonitorV2:
             content_hash = hashlib.sha256(text.encode()).hexdigest()
             has_changed = self._has_content_changed(source.id, content_hash)
             name = f"Regulation from {source.id}"
+            celex_id = self._extract_celex_id(source.url) or "UNKNOWN"
             if has_changed or not self._regulation_exists(name):
                 regulation = self._ingest_regulation_text(
                     name=name,
                     version=datetime.utcnow().strftime("%Y%m%d%H%M"),
                     text=text,
-                    url=source.url
+                    url=source.url,
+                    celex_id=celex_id
                 )
                 logger.info(f"Updated regulation from HTML source {source.id}")
             self._log_source_operation(
@@ -419,69 +391,14 @@ class RegulationMonitorV2:
             self._log_source_operation(source.id, "error", None, None, str(e), "html")
             raise
     
-    async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, query: str) -> Optional[Dict]:
-        """Выполнить SPARQL запрос и вернуть метаданные."""
-        async def _parse_result(result: Dict) -> Optional[Dict]:
-            if 'results' in result and 'bindings' in result['results']:
-                bindings = result['results']['bindings']
-                if bindings:
-                    b = bindings[0]
-                    return {
-                        'title': b.get('title', {}).get('value', 'Unknown Title'),
-                        'date': b.get('date', {}).get('value', ''),
-                        'version': b.get('version', {}).get('value', '1.0'),
-                        'text': b.get('text', {}).get('value'),
-                        'item_url': b.get('item', {}).get('value'),
-                        'format': b.get('format', {}).get('value')
-                    }
-            return None
-
+    async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, celex_id: str) -> Optional[Dict]:
+        """Получить данные через SPARQL используя общий ELI клиент."""
         try:
-            async with session.post(
-                endpoint,
-                data={'query': query, 'format': 'application/sparql-results+json'},
-                headers={
-                    'Accept': 'application/sparql-results+json',
-                    'Accept-Language': 'en',
-                    'User-Agent': UA
-                },
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as resp:
-                resp.raise_for_status()
-                result = await resp.json()
-                parsed = await _parse_result(result)
-                if parsed:
-                    return parsed
-        except Exception as e1:
-            resp = None
-            try:
-                async with session.get(
-                    endpoint,
-                    params={'query': query, 'format': 'application/sparql-results+json'},
-                    headers={
-                        'Accept': 'application/sparql-results+json',
-                        'Accept-Language': 'en',
-                        'User-Agent': UA
-                    },
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as resp:
-                    resp.raise_for_status()
-                    result = await resp.json()
-                    parsed = await _parse_result(result)
-                    if parsed:
-                        return parsed
-            except Exception as e2:
-                try:
-                    ct = resp.headers.get('Content-Type', 'n/a') if resp else 'n/a'  # type: ignore
-                    body_preview = (await resp.text())[:500] if resp else ''  # type: ignore
-                except Exception:
-                    ct = 'n/a'; body_preview = ''
-                q_preview = (query or '')[:200].replace('\n', ' ')
-                logger.error(
-                    f"SPARQL failed (POST:{e1}) and (GET:{e2}); endpoint={endpoint}; ct={ct}; body≈{body_preview!r}; query≈{q_preview}"
-                )
-                return None
-        return None
+            from .eli_client import fetch_latest_eli
+            return await fetch_latest_eli(session, celex_id)
+        except Exception as e:
+            logger.error(f"ELI SPARQL fetch failed for {celex_id}: {e}")
+            return None
 
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
         """Получить текст из HTML-страницы с уважением к robots.txt."""
@@ -573,20 +490,21 @@ class RegulationMonitorV2:
         self.db.commit()
     
     def _ingest_regulation_text(
-        self, 
-        name: str, 
-        version: str, 
-        text: str, 
-        url: str
+        self,
+        name: str,
+        version: str,
+        text: str,
+        url: str,
+        celex_id: str = "UNKNOWN"
     ) -> Regulation:
         """Ингестировать текст регуляции в базу данных."""
         from .regulation_monitor import parse_rules
         from .legal_diff import LegalDiffAnalyzer
         
-        # Проверяем, есть ли уже регуляция с таким именем
+        # Проверяем, есть ли уже регуляция с таким CELEX ID
         existing_regulation = (
             self.db.query(Regulation)
-            .filter_by(name=name)
+            .filter_by(celex_id=celex_id)
             .order_by(Regulation.last_updated.desc())
             .first()
         )
@@ -601,6 +519,7 @@ class RegulationMonitorV2:
             # Создаём новую регуляцию
             regulation = Regulation(
                 name=name,
+                celex_id=celex_id,
                 version=version,
                 source_url=url,
                 effective_date=datetime.utcnow(),

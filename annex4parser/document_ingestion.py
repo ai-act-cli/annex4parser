@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 # matcher.  This import is kept on a separate line so that tools
 # injecting automated fixes do not remove unused imports prematurely.
 from .mapper.combined_mapper import combined_match_rules
-from .models import Document, DocumentRuleMapping, Rule
+from .models import Document, DocumentRuleMapping, Rule, Regulation
 
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
@@ -89,7 +89,13 @@ def ingest_document(
     # blending keyword presence with semantic similarity.
     matches = combined_match_rules(db, text)
     for section_code, confidence in matches.items():
-        rule = db.query(Rule).filter_by(section_code=section_code).first()
+        rule = (
+            db.query(Rule)
+            .join(Regulation, Rule.regulation_id == Regulation.id)
+            .filter(Rule.section_code == section_code)
+            .order_by(Regulation.last_updated.desc())
+            .first()
+        )
         if not rule:
             continue
         mapping = DocumentRuleMapping(

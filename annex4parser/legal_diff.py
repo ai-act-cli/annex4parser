@@ -70,7 +70,7 @@ class LegalDiffAnalyzer:
         new_text : str
             Новая версия текста
         section_code : str
-            Код секции (например, "Article15.3")
+            Код секции (например, "Article11")
             
         Returns
         -------
@@ -280,14 +280,14 @@ def analyze_legal_changes(
 if __name__ == "__main__":
     # Тестовые тексты
     old_text = """
-    Article 15.3 Documentation requirements
+    Article 11 Documentation requirements
     
     Providers shall establish and maintain technical documentation 
     for high-risk AI systems in accordance with this Regulation.
     """
     
     new_text = """
-    Article 15.3 Documentation requirements
+    Article 11 Documentation requirements
     
     Providers shall establish and maintain comprehensive technical documentation 
     for high-risk AI systems in accordance with this Regulation, including 
@@ -296,7 +296,7 @@ if __name__ == "__main__":
     
     # Анализируем изменения
     analyzer = LegalDiffAnalyzer()
-    change = analyzer.analyze_changes(old_text, new_text, "Article15.3")
+    change = analyzer.analyze_changes(old_text, new_text, "Article11")
     
     print(f"Тип изменения: {change.change_type}")
     print(f"Серьёзность: {change.severity}")

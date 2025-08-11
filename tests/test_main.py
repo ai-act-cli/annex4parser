@@ -29,7 +29,7 @@ def test_basic_functionality():
     session = Session()
     
     # Создаём тестовую регуляцию
-    reg = Regulation(name='EU AI Act Test', version='1.0')
+    reg = Regulation(name='EU AI Act Test', celex_id='32024R1689', version='1.0')
     session.add(reg)
     session.flush()
     
@@ -37,7 +37,7 @@ def test_basic_functionality():
     test_rules = [
         Rule(regulation_id=reg.id, section_code='Article9.2', 
              title='Risk Management', content='Risk management requirements for AI systems'),
-        Rule(regulation_id=reg.id, section_code='Article15.3', 
+        Rule(regulation_id=reg.id, section_code='Article11',
              title='Documentation', content='Documentation requirements for compliance'),
         Rule(regulation_id=reg.id, section_code='Article10.1', 
              title='Data Governance', content='Data governance requirements')
@@ -75,7 +75,7 @@ def test_basic_functionality():
     old_text = "Providers shall maintain documentation."
     new_text = "Providers must maintain comprehensive documentation."
     
-    change = analyzer.analyze_changes(old_text, new_text, "Article15.3")
+    change = analyzer.analyze_changes(old_text, new_text, "Article11")
     print(f"Change type: {change.change_type}")
     print(f"Severity: {change.severity}")
     print(f"Affected keywords: {change.keywords_affected}")
@@ -88,7 +88,7 @@ def test_basic_functionality():
         rule_id="test-rule-123",
         severity="high",
         regulation_name="EU AI Act",
-        section_code="Article15.3"
+        section_code="Article11"
     )
     print("✅ Alert system works")
     

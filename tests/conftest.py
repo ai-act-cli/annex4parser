@@ -246,6 +246,7 @@ def test_regulation(test_db):
     # Создаем регулирование
     regulation = Regulation(
         name="EU AI Act",
+        celex_id="32024R1689",
         version="1.0"
     )
     test_db.add(regulation)
@@ -267,25 +268,25 @@ def test_regulation(test_db):
         ),
         Rule(
             regulation_id=regulation.id,
-            section_code="Article15.3",
+            section_code="Article11",
             content="Technical documentation requirements for AI systems",
             risk_level="medium"
         ),
         Rule(
             regulation_id=regulation.id,
-            section_code="Article15.4",
+            section_code="Article12",
             content="Record keeping and logging requirements for AI systems",
             risk_level="medium"
         ),
         Rule(
             regulation_id=regulation.id,
-            section_code="Article16.1",
+            section_code="Article15",
             content="Accuracy and cybersecurity requirements for AI systems",
             risk_level="high"
         ),
         Rule(
             regulation_id=regulation.id,
-            section_code="Article17.1",
+            section_code="Article14",
             content="Human oversight requirements for AI systems",
             risk_level="critical"
         )

@@ -40,9 +40,9 @@ sources:
   - id: ec_press_rss
     type: rss
     active: false
-    url: "https://ec.europa.eu/commission/presscorner/"
+    url: "https://ec.europa.eu/commission/presscorner/rss/en.xml"
     freq: "6h"
-    description: "Presscorner выдаёт HTML; используйте Newsroom RSS ниже"
+    description: "Presscorner RSS feed"
 
   # Пример рабочего RSS Newsroom (подставьте свой DG/тип)
   - id: ec_newsroom_example

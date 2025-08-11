@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 def test_alert_and_doc_outdated(test_db, eli_rdf_v1, eli_rdf_v2, test_config_path):
     """Тест создания алерта и пометки документа как устаревшего"""
-    # -- подготовим документ, связанный с Article15.3 ------------------
+    # -- подготовим документ, связанный с Article11 ------------------
     doc = Document(
         id=uuid.uuid4(), 
         filename="foo.pdf",
@@ -20,13 +20,13 @@ def test_alert_and_doc_outdated(test_db, eli_rdf_v1, eli_rdf_v2, test_config_pat
     test_db.commit()
     
     # Симулируем старую Rule 15.3 и маппинг
-    old_reg = Regulation(name="EU AI Act", version="old")
+    old_reg = Regulation(name="EU AI Act", celex_id="32024R1689", version="old")
     test_db.add(old_reg)
     test_db.flush()
     
     old_rule = Rule(
         regulation_id=old_reg.id, 
-        section_code="Article15.3",
+        section_code="Article11",
         content="old text", 
         risk_level="critical"
     )
@@ -46,7 +46,7 @@ def test_alert_and_doc_outdated(test_db, eli_rdf_v1, eli_rdf_v2, test_config_pat
     mock_eli_data = {
         "title": "EU AI Act",
         "version": "2.0",
-        "text": "Article 15.3 Documentation requirements\n\nProviders shall establish and maintain comprehensive technical documentation for high-risk AI systems in accordance with this Regulation, including detailed risk assessments and mitigation strategies.",
+        "text": "Article 11 Documentation requirements\n\nProviders shall establish and maintain comprehensive technical documentation for high-risk AI systems in accordance with this Regulation, including detailed risk assessments and mitigation strategies.",
         "date": "2024-02-15"
     }
 
@@ -55,7 +55,7 @@ def test_alert_and_doc_outdated(test_db, eli_rdf_v1, eli_rdf_v2, test_config_pat
     regulation = mon._ingest_regulation_text(
         name="EU AI Act",
         version="2.0",
-        text="Article 15.3 Documentation requirements\n\nProviders shall establish and maintain comprehensive technical documentation for high-risk AI systems in accordance with this Regulation, including detailed risk assessments and mitigation strategies.",
+        text="Article 11 Documentation requirements\n\nProviders shall establish and maintain comprehensive technical documentation for high-risk AI systems in accordance with this Regulation, including detailed risk assessments and mitigation strategies.",
         url="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32024R1689"
     )
     print(f"Regulation created/updated: {regulation.name} (ID: {regulation.id})")
@@ -73,7 +73,7 @@ def test_alert_and_doc_outdated(test_db, eli_rdf_v1, eli_rdf_v2, test_config_pat
     print(f"Document mappings count: {len(updated_doc.mappings)}")
     
     # Проверяем, что правило обновилось
-    rules = test_db.query(Rule).filter_by(section_code="Article15.3").all()
+    rules = test_db.query(Rule).filter_by(section_code="Article11").all()
     print(f"Rules found: {len(rules)}")
     for rule in rules:
         print(f"Rule content: {rule.content[:100]}...")

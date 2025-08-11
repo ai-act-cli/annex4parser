@@ -61,7 +61,7 @@ def parse_rules(raw_text: str) -> List[dict]:
     """Parse Articles and Annexes into rule entries (with optional parents).
 
     Returns list of dicts with:
-      - section_code: e.g. "Article15.3", "AnnexIV", "AnnexIV.1", "AnnexIV.1.a"
+      - section_code: e.g. "Article11", "AnnexIV", "AnnexIV.1", "AnnexIV.1.a"
       - title: optional heading
       - content: text body for the node
       - parent_section_code: optional (for Annex children)
@@ -97,11 +97,13 @@ def parse_rules(raw_text: str) -> List[dict]:
                 code = m.group(1).strip()
                 title = m.group(2).strip()
                 content = "\n".join(lines[1:]).strip()
+                parent_code = f"Article{code}"
                 rules.append({
-                    "section_code": f"Article{code}",
+                    "section_code": parent_code,
                     "title": title,
                     "content": content,
                 })
+                _parse_article_subsections(rules, parent_code, content)
         
         elif block_type == "Annex":
             # Парсим Annex
@@ -124,6 +126,33 @@ def parse_rules(raw_text: str) -> List[dict]:
                 _parse_annex_subsections(rules, parent_code, body)
 
     return rules
+
+
+def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
+    """Парсит пункты и подпункты внутри Article."""
+    top_parts = re.split(r"(?m)^\s*(\d+)\.\s+", body)
+    if len(top_parts) >= 3:
+        for i in range(1, len(top_parts), 2):
+            num = top_parts[i]
+            text_i = top_parts[i + 1] if i + 1 < len(top_parts) else ""
+            code_i = f"{parent_code}.{num}"
+            rules.append({
+                "section_code": code_i,
+                "title": "",
+                "content": text_i.strip(),
+                "parent_section_code": parent_code,
+            })
+            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", text_i)
+            if len(sub_parts) >= 3:
+                for j in range(1, len(sub_parts), 2):
+                    letter = sub_parts[j]
+                    text_j = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
+                    rules.append({
+                        "section_code": f"{code_i}.{letter}",
+                        "title": "",
+                        "content": text_j.strip(),
+                        "parent_section_code": code_i,
+                    })
 
 
 def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
@@ -235,7 +264,7 @@ class RegulationMonitor:
     # ------------------------------------------------------------------
     # Main update routine
     # ------------------------------------------------------------------
-    def update(self, name: str, version: str, url: str) -> Regulation:
+    def update(self, name: str, version: str, url: str, celex_id: str = "UNKNOWN") -> Regulation:
         """Fetch a new version of a regulation and update the database.
 
         This method wraps the legacy :func:`update_regulation` logic with
@@ -255,7 +284,11 @@ class RegulationMonitor:
             URL from which to fetch the regulation text.
         """
         # Return existing record if version already loaded
-        existing = self.db.query(Regulation).filter_by(name=name, version=version).first()
+        existing = (
+            self.db.query(Regulation)
+            .filter_by(celex_id=celex_id, version=version)
+            .first()
+        )
         if existing:
             return existing
 
@@ -264,7 +297,7 @@ class RegulationMonitor:
         raw_text = fetch_regulation_text(url)
         if cached is not None and cached.strip() == raw_text.strip():
             logger.info("No substantive changes detected for %s; skipping update.", name)
-            return existing if existing else Regulation(name=name, version=version)
+            return existing if existing else Regulation(name=name, celex_id=celex_id, version=version)
         # Save the new content in cache for next run
         self.save_cached_text(url, raw_text)
 
@@ -279,6 +312,7 @@ class RegulationMonitor:
         # Create new regulation record
         reg = Regulation(
             name=name,
+            celex_id=celex_id,
             version=version,
             source_url=url,
             effective_date=datetime.utcnow(),
@@ -353,7 +387,7 @@ class RegulationMonitor:
 _default_monitor: Optional[RegulationMonitor] = None
 
 
-def update_regulation(db: Session, name: str, version: str, url: str) -> Regulation:
+def update_regulation(db: Session, name: str, version: str, url: str, celex_id: str = "UNKNOWN") -> Regulation:
     """Backward compatible wrapper around :meth:`RegulationMonitor.update`.
 
     This function will lazily instantiate a :class:`RegulationMonitor`
@@ -364,4 +398,4 @@ def update_regulation(db: Session, name: str, version: str, url: str) -> Regulat
     global _default_monitor
     if _default_monitor is None or _default_monitor.db is not db:
         _default_monitor = RegulationMonitor(db)
-    return _default_monitor.update(name=name, version=version, url=url)
+    return _default_monitor.update(name=name, version=version, url=url, celex_id=celex_id)

@@ -27,7 +27,7 @@ def test_system():
     
     try:
         # Create test regulation
-        reg = Regulation(name='EU AI Act Test', version='1.0')
+        reg = Regulation(name='EU AI Act Test', celex_id='32024R1689', version='1.0')
         session.add(reg)
         session.flush()
         
@@ -35,7 +35,7 @@ def test_system():
         test_rules = [
             Rule(regulation_id=reg.id, section_code='Article9.2', 
                  title='Risk Management', content='Risk management requirements for AI systems'),
-            Rule(regulation_id=reg.id, section_code='Article15.3', 
+            Rule(regulation_id=reg.id, section_code='Article11',
                  title='Documentation', content='Documentation requirements for compliance'),
             Rule(regulation_id=reg.id, section_code='Article10.1', 
                  title='Data Governance', content='Data governance requirements')
