@@ -1,11 +1,25 @@
 PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
-SELECT ?title ?date ?version WHERE {
-  ?w cdm:resource_legal_id_celex "32024R1689" .
-  ?expr cdm:expression_belongs_to_work ?w .
-  ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/ENG> .
+PREFIX purl: <http://purl.org/dc/elements/1.1/>
+
+# Latest consolidated expression of the AI Act
+SELECT DISTINCT ?item ?title ?date ?version (STR(?format) AS ?format)
+WHERE {
+  ?work cdm:resource_legal_id_celex ?celex .
+  FILTER(STRSTARTS(?celex, "02024R1689-"))
+  ?expr cdm:expression_belongs_to_work ?work ;
+        cdm:expression_uses_language ?lang .
+  ?lang purl:identifier ?langCode .
+  FILTER(STR(?langCode) = "ENG")
+
   OPTIONAL { ?expr cdm:expression_title ?title }
-  OPTIONAL { ?w cdm:work_date_document ?date }
+  OPTIONAL { ?work cdm:work_date_document ?date }
   OPTIONAL { ?expr cdm:expression_version ?version }
+
+  ?manif cdm:manifestation_manifests_expression ?expr ;
+         cdm:manifestation_type ?format .
+  OPTIONAL { ?item1 cdm:item_belongs_to_manifestation ?manif . }
+  OPTIONAL { ?manif cdm:manifestation_has_item ?item2 . }
+  BIND(COALESCE(?item1, ?item2) AS ?item)
 }
 ORDER BY DESC(?date)
 LIMIT 1
