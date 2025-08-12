@@ -25,7 +25,6 @@ from .models import (
     Source, RegulationSourceLog, Document
 )
 from .rss_listener import fetch_rss_feed, RSSMonitor
-from .eli_client import ELI_ENDPOINT
 import re
 
 logger = logging.getLogger(__name__)
@@ -244,15 +243,16 @@ class RegulationMonitorV2:
                 items = eli_data.get("items") or []
                 pdf = next((i for i in items if i.get("format", "").upper().find("PDF") >= 0), None)
                 html = next((i for i in items if i.get("format", "").upper().find("HTML") >= 0), None)
-                item = pdf or html
-                if item:
-                    try:
-                        if "PDF" in item["format"].upper():
-                            txt = await self._fetch_pdf_text(session, item["url"])
-                        else:
-                            txt = await self._fetch_html_text(session, item["url"])
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch item {item['url']}: {e}")
+                try:
+                    if pdf:
+                        txt = await self._fetch_pdf_text(session, pdf["url"])
+                        if (not txt or len(txt) < 500) and html:
+                            txt = await self._fetch_html_text(session, html["url"])
+                    elif html:
+                        txt = await self._fetch_html_text(session, html["url"])
+                except Exception as e:
+                    url_err = (pdf or html or {}).get("url")
+                    logger.warning(f"Failed to fetch item {url_err}: {e}")
 
             if not txt:
                 logger.warning("SPARQL failed or returned no text; falling back to HTML-only ingestion")
@@ -449,7 +449,7 @@ class RegulationMonitorV2:
         PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
         SELECT ?celex ?date WHERE {{
           ?w cdm:resource_legal_id_celex ?celex .
-          FILTER(STRSTARTS(?celex, CONCAT('02', SUBSTR('{base_celex}',3), '-')))
+          FILTER(STRSTARTS(?celex, CONCAT('02', SUBSTR('{base_celex}',2), '-')))
           OPTIONAL {{ ?w cdm:work_date_document ?date }}
         }} ORDER BY DESC(?date) DESC(?celex) LIMIT 1
         """
@@ -509,7 +509,11 @@ class RegulationMonitorV2:
         import io
         import pdfplumber
 
-        async with session.get(url, headers={'User-Agent': UA}) as resp:
+        async with session.get(
+            url,
+            headers={'User-Agent': UA},
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
             resp.raise_for_status()
             data = await resp.read()
         with pdfplumber.open(io.BytesIO(data)) as pdf:

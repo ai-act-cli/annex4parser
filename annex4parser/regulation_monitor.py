@@ -127,7 +127,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                         k += 1
                 if not title:
                     buff = []
-                    for ln in lines[1:5]:
+                    for ln in lines[1:7]:
                         s = ln.strip()
                         if not s or re.match(r"^\d+\.\s*$", s) or re.match(r"^(ANNEX|Article)\b", s, re.I):
                             break
@@ -156,7 +156,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                 consumed = 0
                 if not annex_title:
                     buff = []
-                    for ln in lines[1:5]:
+                    for ln in lines[1:7]:
                         s = ln.strip()
                         if not s or re.match(r"^\d+\.\s*$", s):
                             break

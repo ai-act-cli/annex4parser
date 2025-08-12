@@ -82,7 +82,7 @@ def mock_eli_response(title: str = "Test Regulation", content: str = "Test conte
                     "date": {"value": "2024-01-15"},
                     "version": {"value": "1.0"},
                     "item": {"value": "http://example.com/doc.pdf"},
-                    "format": {"value": "PDF"},
+                    "format_str": {"value": "PDF"},
                 }
             ]
         }

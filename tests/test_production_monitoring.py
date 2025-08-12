@@ -108,7 +108,7 @@ class TestELIClient:
                     "version": {"value": "1.0"},
                     "title": {"value": "Test Regulation"},
                     "item": {"value": "http://example.com/doc.pdf"},
-                    "format": {"value": "PDF"}
+                    "format_str": {"value": "PDF"}
                 }]
             }
         }

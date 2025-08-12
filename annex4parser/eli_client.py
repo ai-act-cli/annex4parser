@@ -8,7 +8,7 @@
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import aiohttp
 from tenacity import retry, wait_exponential_jitter, stop_after_attempt
 
@@ -28,7 +28,7 @@ BASE_QUERY = """
 PREFIX cdm:  <http://publications.europa.eu/ontology/cdm#>
 PREFIX purl: <http://purl.org/dc/elements/1.1/>
 PREFIX owl:  <http://www.w3.org/2002/07/owl#>
-SELECT DISTINCT ?title ?date ?version ?item (STR(?format) AS ?format) WHERE {{
+SELECT DISTINCT ?title ?date ?version ?item (STR(?format) AS ?format_str) WHERE {{
   ?work owl:sameAs <http://publications.europa.eu/resource/celex/{celex_id}> .
   ?expr cdm:expression_belongs_to_work ?work ;
         cdm:expression_uses_language ?lang .
@@ -55,7 +55,7 @@ async def fetch_latest_eli(
     session: aiohttp.ClientSession,
     celex_id: str,
     endpoint: str = ELI_ENDPOINT
-) -> Optional[Dict[str, str]]:
+) -> Optional[Dict[str, Any]]:
     """Получить последнюю версию документа через SPARQL (CDM).
     
     Parameters
@@ -102,7 +102,7 @@ async def fetch_latest_eli(
             items = []
             for r in rows:
                 item_url = r.get("item", {}).get("value")
-                fmt = r.get("format", {}).get("value")
+                fmt = r.get("format_str", {}).get("value")
                 if item_url:
                     items.append({"url": item_url, "format": fmt})
 
