@@ -24,6 +24,7 @@ import difflib
 import logging
 import os
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
@@ -114,33 +115,27 @@ def parse_rules(raw_text: str) -> List[dict]:
             if m:
                 code = m.group(1).strip()
                 rest = m.group(2) or ""
-                title = re.sub(r"^\s*[–—-]\s*", "", rest or "").strip()
+                title = re.sub(r"^\s*[–—-]\s*", "", rest).strip()
                 title_line_idx = 0
                 if not title:
-                    k = 1
-                    while k < min(4, len(lines)):
-                        cand = lines[k].strip()
-                        if cand and not re.match(r"^\d+\.\s+", cand) and not re.match(r"^(ANNEX|Article)\b", cand, re.I):
-                            title = cand
-                            title_line_idx = k
+                    for k in range(1, min(8, len(lines))):
+                        cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
+                        if not cand:
+                            continue
+                        if re.match(r"^(ANNEX|Article)\b", cand, re.I):
                             break
-                        k += 1
-                if not title:
-                    buff = []
-                    for ln in lines[1:7]:
-                        s = ln.strip()
-                        if not s or re.match(r"^\d+\.\s+", s) or re.match(r"^(ANNEX|Article)\b", s, re.I):
+                        if re.match(r"^\d+\.\s+", cand):
                             break
-                        buff.append(s)
-                    if buff:
-                        title = " ".join(buff).split(" – ")[0].split(" — ")[0].strip()
-                        title_line_idx = len(buff)
-                raw = "\n".join(lines[title_line_idx+1:]).strip()
+                        title = re.sub(r"^[–—-:]\s*", "", cand).strip()
+                        title_line_idx = k
+                        break
+                rule_title = title or None
+                raw = "\n".join(lines[title_line_idx + 1:]).strip()
                 content = re.sub(r"\n{3,}", "\n\n", raw)
                 parent_code = canonicalize(f"Article{code}")
                 rules.append({
                     "section_code": parent_code,
-                    "title": title,
+                    "title": rule_title,
                     "content": content,
                 })
                 _parse_article_subsections(rules, parent_code, content)
@@ -157,20 +152,20 @@ def parse_rules(raw_text: str) -> List[dict]:
                 if not annex_title:
                     buff = []
                     for ln in lines[1:7]:
-                        s = ln.strip()
+                        s = unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip()
                         if not s or re.match(r"^\d+\.\s+", s):
                             break
                         buff.append(s)
                     if buff:
                         annex_title = " ".join(buff).strip()
                         consumed = len(buff)
-                raw_body = "\n".join(lines[1+consumed:]).strip()
+                raw_body = "\n".join(lines[1 + consumed:]).strip()
                 body = re.sub(r"\n{3,}", "\n\n", raw_body)
 
                 parent_code = canonicalize(f"Annex{roman}")
                 rules.append({
                     "section_code": parent_code,
-                    "title": annex_title,
+                    "title": annex_title or None,
                     "content": body,
                 })
 
@@ -216,28 +211,40 @@ def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
     if len(top_parts) >= 3:
         for i in range(1, len(top_parts), 2):
             num = top_parts[i]
-            text_i = top_parts[i+1] if i+1 < len(top_parts) else ""
+            text_i = top_parts[i + 1] if i + 1 < len(top_parts) else ""
             code_i = canonicalize(f"{parent_code}.{num}")
-            # Добавляем узел 1-го уровня
+            lines_i = text_i.splitlines()
+            title_i = ""
+            body_i = text_i
+            if lines_i:
+                title_i = unicodedata.normalize("NFKC", lines_i[0]).replace("\xa0", " ").strip()
+                body_i = "\n".join(lines_i[1:]).strip()
             rules.append({
                 "section_code": code_i,
-                "title": "",
-                "content": text_i.strip(),
+                "title": title_i or None,
+                "content": body_i,
                 "parent_section_code": canonicalize(parent_code),
+                "order_index": num,
             })
             # Разрезаем подпункты (a), (b) ...
-            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", text_i)
+            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", body_i)
             if len(sub_parts) >= 3:
-                # ["prefix", "a", "text_a", "b", "text_b", ...]
                 for j in range(1, len(sub_parts), 2):
                     letter = sub_parts[j]
-                    text_j = sub_parts[j+1] if j+1 < len(sub_parts) else ""
+                    text_j = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
+                    lines_j = text_j.splitlines()
+                    title_j = ""
+                    body_j = text_j
+                    if lines_j:
+                        title_j = unicodedata.normalize("NFKC", lines_j[0]).replace("\xa0", " ").strip()
+                        body_j = "\n".join(lines_j[1:]).strip()
                     sub_code = canonicalize(f"{code_i}.{letter}")
                     rules.append({
                         "section_code": sub_code,
-                        "title": "",
-                        "content": text_j.strip(),
+                        "title": title_j or None,
+                        "content": body_j,
                         "parent_section_code": code_i,
+                        "order_index": letter,
                     })
 
 

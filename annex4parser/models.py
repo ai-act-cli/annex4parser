@@ -62,6 +62,7 @@ class Rule(Base):
     section_code = Column(String(50), nullable=False)
     title = Column(Text)
     content = Column(Text)
+    order_index = Column(String(20), nullable=True)
     risk_level = Column(
         Enum("critical", "high", "medium", "low", name="risk_level"), default="medium"
     )
@@ -69,6 +70,7 @@ class Rule(Base):
     parent_rule_id = Column(UUID(as_uuid=True), ForeignKey("rules.id"), nullable=True)
     effective_date = Column(DateTime, nullable=True)
     last_modified = Column(DateTime, default=datetime.utcnow)
+    ingested_at = Column(DateTime, default=datetime.utcnow)
     regulation = relationship("Regulation", back_populates="rules")
 
 
