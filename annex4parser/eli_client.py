@@ -89,7 +89,7 @@ async def fetch_latest_eli(
                 "Accept": "application/sparql-results+json",
                 "Accept-Language": "en",
             },
-            timeout=aiohttp.ClientTimeout(total=30)
+            timeout=aiohttp.ClientTimeout(total=300)
         ) as resp:
             resp.raise_for_status()
             data = await resp.json()
