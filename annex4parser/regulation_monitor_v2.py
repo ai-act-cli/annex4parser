@@ -339,12 +339,12 @@ class RegulationMonitorV2:
                 e.headers,
             )
             self._log_source_operation(
-                source.id, "error", None, None, f"HTTP {e.status} {e.message}"
+                source.id, "error", None, None, f"HTTP {e.status} {e.message}", fetch_mode
             )
             return None
         except Exception as e:
             logger.exception("%s processing %s", type(e).__name__, source.id)
-            self._log_source_operation(source.id, "error", None, None, str(e))
+            self._log_source_operation(source.id, "error", None, None, str(e), fetch_mode)
             return None
     
     async def _process_rss_source(
@@ -672,6 +672,8 @@ class RegulationMonitorV2:
             regulation.version = version
             regulation.expression_version = expression_version
             regulation.work_date = work_date_dt
+            if work_date_dt:
+                regulation.effective_date = work_date_dt
             regulation.last_updated = datetime.utcnow()
             regulation.source_url = url
         else:
@@ -735,7 +737,8 @@ class RegulationMonitorV2:
                 existing_rule.title = t or None
                 existing_rule.version = version
                 existing_rule.risk_level = infer_risk_level(section_code, rule_data["content"])
-                existing_rule.order_index = rule_data.get("order_index")
+                if rule_data.get("order_index") is not None:
+                    existing_rule.order_index = rule_data["order_index"]
                 if work_date_dt:
                     existing_rule.effective_date = work_date_dt
                 if change.change_type != "no_change":
