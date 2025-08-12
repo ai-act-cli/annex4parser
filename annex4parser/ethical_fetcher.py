@@ -87,8 +87,8 @@ class EthicalFetcher:
                 e.headers,
             )
             raise
-        except Exception as e:
-            logger.error("Failed to fetch %s: %s", url, e)
+        except Exception:
+            logger.exception("Failed to fetch %s", url)
             return None
     
     async def _respect_crawl_delay(self, url: str, delay: float):
