@@ -67,8 +67,10 @@ async def fetch_latest_eli(
         
     Returns
     -------
-    Optional[Dict[str, str]]
-        Словарь с данными документа или None если не найден
+    Optional[Dict[str, Any]]
+        Словарь с ключами ``title``, ``date``, ``version`` и ``items``
+        (список словарей ``{"url": ..., "format": ...}``), или ``None``
+        если документ не найден
     """
     query = BASE_QUERY.format(celex_id=celex_id)
     
@@ -125,7 +127,7 @@ async def fetch_latest_eli(
         raise
 
 
-async def fetch_regulation_by_celex(celex_id: str) -> Optional[Dict[str, str]]:
+async def fetch_regulation_by_celex(celex_id: str) -> Optional[Dict[str, Any]]:
     """Удобная функция для получения регуляторного документа по CELEX ID."""
     async with aiohttp.ClientSession() as session:
         return await fetch_latest_eli(session, celex_id)

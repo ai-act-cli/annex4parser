@@ -120,7 +120,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                     k = 1
                     while k < min(4, len(lines)):
                         cand = lines[k].strip()
-                        if cand and not re.match(r"^\d+\.\s*$", cand, re.I) and not re.match(r"^(ANNEX|Article)\b", cand, re.I):
+                        if cand and not re.match(r"^\d+\.\s+", cand) and not re.match(r"^(ANNEX|Article)\b", cand, re.I):
                             title = cand
                             title_line_idx = k
                             break
@@ -129,7 +129,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                     buff = []
                     for ln in lines[1:7]:
                         s = ln.strip()
-                        if not s or re.match(r"^\d+\.\s*$", s) or re.match(r"^(ANNEX|Article)\b", s, re.I):
+                        if not s or re.match(r"^\d+\.\s+", s) or re.match(r"^(ANNEX|Article)\b", s, re.I):
                             break
                         buff.append(s)
                     if buff:
@@ -158,7 +158,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                     buff = []
                     for ln in lines[1:7]:
                         s = ln.strip()
-                        if not s or re.match(r"^\d+\.\s*$", s):
+                        if not s or re.match(r"^\d+\.\s+", s):
                             break
                         buff.append(s)
                     if buff:

@@ -246,7 +246,7 @@ class RegulationMonitorV2:
                 try:
                     if pdf:
                         txt = await self._fetch_pdf_text(session, pdf["url"])
-                        if (not txt or len(txt) < 500) and html:
+                        if (not txt or len(txt) < 300) and html:
                             txt = await self._fetch_html_text(session, html["url"])
                     elif html:
                         txt = await self._fetch_html_text(session, html["url"])
@@ -449,7 +449,7 @@ class RegulationMonitorV2:
         PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
         SELECT ?celex ?date WHERE {{
           ?w cdm:resource_legal_id_celex ?celex .
-          FILTER(STRSTARTS(?celex, CONCAT('02', SUBSTR('{base_celex}',2), '-')))
+        FILTER(STRSTARTS(?celex, CONCAT('0', SUBSTR('{base_celex}',2), '-')))
           OPTIONAL {{ ?w cdm:work_date_document ?date }}
         }} ORDER BY DESC(?date) DESC(?celex) LIMIT 1
         """
