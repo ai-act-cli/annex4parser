@@ -215,12 +215,22 @@ class LegalDiffAnalyzer:
             return "low"
         
         import os
-        SEM_LOW = float(os.getenv("LEGALDIFF_SEM_LOW", "0.9"))
-        DIFF_LOW = float(os.getenv("LEGALDIFF_DIFF_LOW", "0.10"))
-        SEM_HIGH = float(os.getenv("LEGALDIFF_SEM_HIGH", "0.6"))
-        DIFF_HIGH = float(os.getenv("LEGALDIFF_DIFF_HIGH", "0.4"))
-        SEM_MED = float(os.getenv("LEGALDIFF_SEM_MED", "0.85"))
-        DIFF_MED = float(os.getenv("LEGALDIFF_DIFF_MED", "0.15"))
+        def _f(name: str, default: float) -> float:
+            raw = os.getenv(name)
+            try:
+                return max(0.0, min(1.0, float(raw))) if raw is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        SEM_LOW = _f("LEGALDIFF_SEM_LOW", 0.9)
+        DIFF_LOW = _f("LEGALDIFF_DIFF_LOW", 0.10)
+        SEM_HIGH = _f("LEGALDIFF_SEM_HIGH", 0.6)
+        DIFF_HIGH = _f("LEGALDIFF_DIFF_HIGH", 0.4)
+        SEM_MED = _f("LEGALDIFF_SEM_MED", 0.85)
+        DIFF_MED = _f("LEGALDIFF_DIFF_MED", 0.15)
+
+        diff_score = 0.0 if diff_score is None else diff_score
+        semantic_score = 0.0 if semantic_score is None else semantic_score
 
         # Почти идентичные тексты при малом diff считаем незначительными
         if semantic_score > SEM_LOW and diff_score <= DIFF_LOW:

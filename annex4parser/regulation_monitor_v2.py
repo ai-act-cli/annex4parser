@@ -197,12 +197,13 @@ class RegulationMonitorV2:
         return stats
     
     async def _process_eli_source(
-        self, 
-        source: Source, 
+        self,
+        source: Source,
         session: aiohttp.ClientSession
     ) -> Optional[Dict]:
         """Обработать ELI SPARQL источник."""
         logger.info(f"Starting _process_eli_source for source: {source.id}")
+        fetch_mode = "unknown"
         try:
             # Получаем настройки из Source.extra
             extra = source.extra or {}
@@ -532,7 +533,12 @@ class RegulationMonitorV2:
         from .ethical_fetcher import ethical_fetch
 
         try:
-            html = await ethical_fetch(session, url, user_agent=UA)
+            html = await ethical_fetch(
+                session,
+                url,
+                user_agent=UA,
+                headers={"Accept-Language": "en"},
+            )
         except aiohttp.ClientResponseError as e:
             logger.error(
                 "HTTP %s %s; url=%s; headers=%s",
@@ -552,8 +558,8 @@ class RegulationMonitorV2:
     def _sanitize_text(self, text: str) -> str:
         """Нормализовать текст перед хешированием и парсингом."""
         text = unicodedata.normalize("NFKC", text or "")
-        # выкидываем простые сноски и «висячие» номера строк
-        text = re.sub(r"\[\d+\]", "", text)
+        # выкидываем простые «висячие» сноски в конце строк
+        text = re.sub(r"\s\[\d+\]\s*$", "", text, flags=re.MULTILINE)
         text = re.sub(r"^\s*[\(\[]?\d+[\)\]]?\s*$", "", text, flags=re.MULTILINE)
         # схлопываем пробелы/пустые абзацы
         text = re.sub(r"[ \t]+", " ", text)
@@ -762,6 +768,35 @@ class RegulationMonitorV2:
                     parent = by_code.get(parent_code)
                     if parent:
                         x.parent_rule_id = parent.id
+            # переносим связки документов на новые правила
+            old_rule_ids = [r.id for r in old_rules]
+            mappings = (
+                self.db.query(DocumentRuleMapping)
+                .filter(DocumentRuleMapping.rule_id.in_(old_rule_ids))
+                .all()
+            )
+            now = datetime.utcnow()
+            for m in mappings:
+                old_r = self.db.get(Rule, m.rule_id)
+                if not old_r:
+                    continue
+                new_r = by_code.get(canonicalize(old_r.section_code))
+                if not new_r:
+                    continue
+                exists = (
+                    self.db.query(DocumentRuleMapping)
+                    .filter_by(document_id=m.document_id, rule_id=new_r.id)
+                    .first()
+                )
+                if not exists:
+                    self.db.add(DocumentRuleMapping(
+                        document_id=m.document_id,
+                        rule_id=new_r.id,
+                        confidence_score=m.confidence_score,
+                        mapped_by="auto",
+                        mapped_at=now,
+                        last_verified=now,
+                    ))
             self.db.commit()
             return regulation
 
