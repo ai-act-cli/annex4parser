@@ -114,7 +114,7 @@ def parse_rules(raw_text: str) -> List[dict]:
             if m:
                 code = m.group(1).strip()
                 rest = m.group(2) or ""
-                title = re.sub(r"^[–—-]\s*", "", rest).strip()
+                title = re.sub(r"^\s*[–—-]\s*", "", rest or "").strip()
                 title_line_idx = 0
                 if not title:
                     k = 1
