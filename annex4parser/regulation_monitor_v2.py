@@ -634,7 +634,7 @@ class RegulationMonitorV2:
         work_date: Optional[str] = None,
     ) -> Regulation:
         """Ингестировать текст регуляции в базу данных."""
-        from .regulation_monitor import parse_rules, canonicalize
+        from .regulation_monitor import parse_rules, canonicalize, format_order_index
         from .legal_diff import LegalDiffAnalyzer
         
         # Проверяем, есть ли уже регуляция с таким CELEX ID
@@ -742,7 +742,7 @@ class RegulationMonitorV2:
                 existing_rule.version = version
                 existing_rule.risk_level = infer_risk_level(section_code, rule_data["content"])
                 if rule_data.get("order_index") is not None:
-                    existing_rule.order_index = rule_data["order_index"]
+                    existing_rule.order_index = format_order_index(rule_data["order_index"])
                 if work_date_dt:
                     existing_rule.effective_date = work_date_dt
                 if change.change_type != "no_change":
@@ -826,7 +826,7 @@ class RegulationMonitorV2:
                     effective_date=work_date_dt,
                     last_modified=work_date_dt or datetime.utcnow(),
                     parent_rule_id=parent_id,
-                    order_index=rule_data.get("order_index"),
+                    order_index=format_order_index(rule_data.get("order_index")) if rule_data.get("order_index") is not None else None,
                     ingested_at=datetime.utcnow(),
                 )
                 self.db.add(rule)

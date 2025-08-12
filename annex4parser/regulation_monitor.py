@@ -55,6 +55,14 @@ def canonicalize(code: str) -> str:
     return code.strip(".")
 
 
+def format_order_index(idx: str) -> str:
+    """Return a zero-padded string for numeric indices and keep letters as is."""
+    if idx is None:
+        return idx
+    idx = str(idx)
+    return f"{int(idx):03d}" if idx.isdigit() else idx
+
+
 def fetch_regulation_text(url: str) -> str:
     """Download a regulation from the given URL and return its plain text.
 
@@ -192,7 +200,7 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
                 "title": title_i or None,
                 "content": content_i,
                 "parent_section_code": canonicalize(parent_code),
-                "order_index": num,
+                "order_index": format_order_index(num),
             })
             sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", content_i)
             if len(sub_parts) >= 3:
@@ -211,7 +219,7 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
                         "title": title_j or None,
                         "content": content_j,
                         "parent_section_code": code_i,
-                        "order_index": letter,
+                        "order_index": format_order_index(letter),
                     })
 
 
@@ -236,7 +244,7 @@ def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
                 "title": title_i or None,
                 "content": body_i,
                 "parent_section_code": canonicalize(parent_code),
-                "order_index": num,
+                "order_index": format_order_index(num),
             })
             # Разрезаем подпункты (a), (b) ...
             sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", body_i)
@@ -256,7 +264,7 @@ def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
                         "title": title_j or None,
                         "content": body_j,
                         "parent_section_code": code_i,
-                        "order_index": letter,
+                        "order_index": format_order_index(letter),
                     })
 
 
