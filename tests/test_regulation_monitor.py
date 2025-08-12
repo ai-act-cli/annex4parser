@@ -44,6 +44,13 @@ def test_parse_rules_handles_lettered_article():
     assert "Article10a" in codes
     assert "Article10a.1" in codes
 
+
+def test_parse_rules_strips_space_before_dash():
+    text = "Article 1  — Scope\nBody\n"
+    parsed = parse_rules(text)
+    title = next(r["title"] for r in parsed if r["section_code"] == "Article1")
+    assert title == "Scope"
+
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
 

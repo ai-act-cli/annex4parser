@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import aiohttp
 from aioresponses import aioresponses
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from annex4parser.regulation_monitor_v2 import RegulationMonitorV2
 from annex4parser.models import Source
 
@@ -27,9 +27,10 @@ async def test_update_all_multisource(test_db, eli_rdf_v1, rss_xml_minor, test_c
         'title': 'EU AI Act',
         'date': '2024-01-15',
         'version': '1.0',
-        'text': 'Article 1. Scope. This Regulation applies to artificial intelligence systems.'
-    }), patch.object(mon, '_process_rss_source', return_value={'type': 'rss', 'source_id': 'rss'}):
-        
+        'items': [{'url': 'http://example.com/doc.pdf', 'format': 'PDF'}]
+    }), patch.object(mon, '_process_rss_source', return_value={'type': 'rss', 'source_id': 'rss'}), \
+         patch.object(mon, '_fetch_pdf_text', new=AsyncMock(return_value='PDF text')):
+
         stats = await mon.update_all()
 
     # Проверяем, что оба источника обработаны

@@ -212,39 +212,47 @@ class RegulationMonitorV2:
                 or getattr(source, "celex_id", None)
                 or self._extract_celex_id(source.url)
             )
+
+            endpoint = extra.get(
+                "endpoint", "https://publications.europa.eu/webapi/rdf/sparql"
+            )
+
+            if extra.get("consolidated") and celex_id:
+                latest = await self._resolve_latest_consolidated_celex(
+                    session, celex_id, endpoint
+                )
+                if latest:
+                    celex_id = latest
+                else:
+                    logger.warning(f"No consolidated CELEX found for base {celex_id}")
+                    self._log_source_operation(source.id, "error", None, None, "No consolidated CELEX")
+                    return None
             logger.info(f"Using CELEX ID: {celex_id} for source: {source.id}")
             if not celex_id:
                 logger.warning(f"No CELEX ID found for source {source.id}")
                 return None
 
-            # Получаем endpoint и путь к SPARQL-запросу
-            endpoint = extra.get(
-                "endpoint", "https://publications.europa.eu/webapi/rdf/sparql"
-            )
             eli_data = await self._execute_sparql_query(session, endpoint, celex_id)
             logger.info(f"SPARQL data received: {eli_data is not None}")
 
-            fetch_mode = "sparql_text"
+            fetch_mode = "sparql_item"
             txt: Optional[str] = None
             pdf = html = None
 
             if eli_data:
-                txt = eli_data.get("text")
-                if not txt:
-                    # выбираем PDF прежде всего, затем HTML
-                    fetch_mode = "sparql_item"
-                    items = eli_data.get("items") or []
-                    pdf = next((i for i in items if i.get("format", "").upper().find("PDF") >= 0), None)
-                    html = next((i for i in items if i.get("format", "").upper().find("HTML") >= 0), None)
-                    item = pdf or html
-                    if item:
-                        try:
-                            if item["format"].upper().find("PDF") >= 0:
-                                txt = await self._fetch_pdf_text(session, item["url"])
-                            else:
-                                txt = await self._fetch_html_text(session, item["url"])
-                        except Exception as e:
-                            logger.warning(f"Failed to fetch item {item['url']}: {e}")
+                items = eli_data.get("items") or []
+                pdf = next((i for i in items if i.get("format", "").upper().find("PDF") >= 0), None)
+                html = next((i for i in items if i.get("format", "").upper().find("HTML") >= 0), None)
+                try:
+                    if pdf:
+                        txt = await self._fetch_pdf_text(session, pdf["url"])
+                        if (not txt or len(txt) < 300) and html:
+                            txt = await self._fetch_html_text(session, html["url"])
+                    elif html:
+                        txt = await self._fetch_html_text(session, html["url"])
+                except Exception as e:
+                    url_err = (pdf or html or {}).get("url")
+                    logger.warning(f"Failed to fetch item {url_err}: {e}")
 
             if not txt:
                 logger.warning("SPARQL failed or returned no text; falling back to HTML-only ingestion")
@@ -300,18 +308,22 @@ class RegulationMonitorV2:
                 len(txt), None, fetch_mode
             )
             return {"type": "eli_sparql", "source_id": source.id}
-        except Exception as e:
-            body = ""
-            if isinstance(e, aiohttp.ClientResponseError) and e.response:
-                try:
-                    body = await e.response.text()
-                except Exception:
-                    body = ""
+        except aiohttp.ClientResponseError as e:
             logger.error(
-                f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
+                "HTTP %s %s; url=%s; headers=%s",
+                e.status,
+                e.message,
+                e.request_info.real_url,
+                e.headers,
             )
+            self._log_source_operation(
+                source.id, "error", None, None, f"HTTP {e.status} {e.message}"
+            )
+            return None
+        except Exception as e:
+            logger.exception("%s processing %s", type(e).__name__, source.id)
             self._log_source_operation(source.id, "error", None, None, str(e))
-            raise
+            return None
     
     async def _process_rss_source(
         self, 
@@ -356,18 +368,22 @@ class RegulationMonitorV2:
                 "new_entries": len(new_entries),
             }
             
-        except Exception as e:
-            body = ""
-            if isinstance(e, aiohttp.ClientResponseError) and e.response:
-                try:
-                    body = await e.response.text()
-                except Exception:
-                    body = ""
+        except aiohttp.ClientResponseError as e:
             logger.error(
-                f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
+                "HTTP %s %s; url=%s; headers=%s",
+                e.status,
+                e.message,
+                e.request_info.real_url,
+                e.headers,
             )
+            self._log_source_operation(
+                source.id, "error", None, None, f"HTTP {e.status} {e.message}"
+            )
+            return None
+        except Exception as e:
+            logger.exception("%s processing %s", type(e).__name__, source.id)
             self._log_source_operation(source.id, "error", None, None, str(e))
-            raise
+            return None
     
     async def _process_html_source(
         self, 
@@ -396,27 +412,75 @@ class RegulationMonitorV2:
             
             return {"type": "html", "source_id": source.id}
             
-        except Exception as e:
-            body = ""
-            if isinstance(e, aiohttp.ClientResponseError) and e.response:
-                try:
-                    body = await e.response.text()
-                except Exception:
-                    body = ""
+        except aiohttp.ClientResponseError as e:
             logger.error(
-                f"{type(e).__name__} processing {source.id}: {e}; body≈{body[:200]!r}"
+                "HTTP %s %s; url=%s; headers=%s",
+                e.status,
+                e.message,
+                e.request_info.real_url,
+                e.headers,
             )
+            self._log_source_operation(
+                source.id, "error", None, None, f"HTTP {e.status} {e.message}", "html"
+            )
+            return None
+        except Exception as e:
+            logger.exception("%s processing %s", type(e).__name__, source.id)
             self._log_source_operation(source.id, "error", None, None, str(e), "html")
-            raise
+            return None
     
-    async def _execute_sparql_query(self, session: aiohttp.ClientSession, endpoint: str, celex_id: str) -> Optional[Dict]:
+    async def _execute_sparql_query(
+        self, session: aiohttp.ClientSession, endpoint: str, celex_id: str
+    ) -> Optional[Dict]:
         """Получить данные через SPARQL используя общий ELI клиент."""
         try:
             from .eli_client import fetch_latest_eli
-            return await fetch_latest_eli(session, celex_id)
+
+            return await fetch_latest_eli(session, celex_id, endpoint)
         except Exception as e:
             logger.error(f"ELI SPARQL fetch failed for {celex_id}: {e}")
             return None
+
+    async def _resolve_latest_consolidated_celex(
+        self, session: aiohttp.ClientSession, base_celex: str, endpoint: str
+    ) -> Optional[str]:
+        """Найти последний консолидированный CELEX для базового идентификатора."""
+        query = f"""
+        PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
+        SELECT ?celex ?date WHERE {{
+          ?w cdm:resource_legal_id_celex ?celex .
+        FILTER(STRSTARTS(?celex, CONCAT('0', SUBSTR('{base_celex}',2), '-')))
+          OPTIONAL {{ ?w cdm:work_date_document ?date }}
+        }} ORDER BY DESC(?date) DESC(?celex) LIMIT 1
+        """
+        params = {"query": query, "format": "application/sparql-results+json"}
+        try:
+            async with session.get(
+                endpoint,
+                params=params,
+                headers={
+                    "User-Agent": UA,
+                    "Accept": "application/sparql-results+json",
+                    "Accept-Language": "en",
+                },
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+        except aiohttp.ClientResponseError as e:
+            logger.error(
+                "Failed to resolve consolidated CELEX: HTTP %s %s; url=%s; headers=%s",
+                e.status,
+                e.message,
+                e.request_info.real_url,
+                e.headers,
+            )
+            return None
+        except Exception as e:
+            logger.error("Failed to resolve consolidated CELEX for %s: %s", base_celex, e)
+            return None
+        rows = data.get("results", {}).get("bindings", [])
+        return rows[0]["celex"]["value"] if rows else None
 
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
         """Получить текст из HTML-страницы с уважением к robots.txt."""
@@ -425,9 +489,12 @@ class RegulationMonitorV2:
         try:
             html = await ethical_fetch(session, url, user_agent=UA)
         except aiohttp.ClientResponseError as e:
-            body = await e.response.text() if e.response else ""
             logger.error(
-                f"HTTP {e.status} {e.message}; ct={e.headers.get('Content-Type')}; body≈{body[:400]!r}"
+                "HTTP %s %s; url=%s; headers=%s",
+                e.status,
+                e.message,
+                e.request_info.real_url,
+                e.headers,
             )
             raise
         if not html:
@@ -442,7 +509,11 @@ class RegulationMonitorV2:
         import io
         import pdfplumber
 
-        async with session.get(url, headers={'User-Agent': UA}) as resp:
+        async with session.get(
+            url,
+            headers={'User-Agent': UA},
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
             resp.raise_for_status()
             data = await resp.read()
         with pdfplumber.open(io.BytesIO(data)) as pdf:

@@ -106,8 +106,9 @@ class TestELIClient:
                 "bindings": [{
                     "date": {"value": "2023-12-01"},
                     "version": {"value": "1.0"},
-                    "text": {"value": "Test regulation text"},
-                    "title": {"value": "Test Regulation"}
+                    "title": {"value": "Test Regulation"},
+                    "item": {"value": "http://example.com/doc.pdf"},
+                    "format_str": {"value": "PDF"}
                 }]
             }
         }
@@ -129,7 +130,7 @@ class TestELIClient:
         assert result is not None
         assert result["title"] == "Test Regulation"
         assert result["version"] == "1.0"
-        assert result["text"] == "Test regulation text"
+        assert result["items"][0]["url"] == "http://example.com/doc.pdf"
     
     @pytest.mark.asyncio
     async def test_fetch_latest_eli_no_results(self):
