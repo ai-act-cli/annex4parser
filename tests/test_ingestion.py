@@ -31,8 +31,8 @@ def test_ingest_and_map_creates_mappings():
     reg = Regulation(name='EU AI Act', celex_id='32024R1689', version='1')
     session.add(reg)
     session.flush()
-    # Создаем правила из DEFAULT_KEYWORD_MAP
-    for code in DEFAULT_KEYWORD_MAP.values():
+    # Создаем правила из DEFAULT_KEYWORD_MAP (уникальные значения)
+    for code in set(DEFAULT_KEYWORD_MAP.values()):
         session.add(Rule(regulation_id=reg.id, section_code=code, title='', content=''))
     
     # Также создаем правила из YAML keywords

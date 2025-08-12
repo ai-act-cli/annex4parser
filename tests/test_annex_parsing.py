@@ -198,12 +198,12 @@ class TestAnnexParsing:
         
         # Проверяем содержимое подпункта 1.a
         section_1a = next(r for r in rules if r['section_code'] == 'AnnexIV.1.a')
-        assert 'intended purpose' in section_1a['content']
+        assert 'intended purpose' in (section_1a['title'] or '')
         assert 'multiple lines' in section_1a['content']
         
         # Проверяем содержимое подпункта 1.b
         section_1b = next(r for r in rules if r['section_code'] == 'AnnexIV.1.b')
-        assert 'system interactions' in section_1b['content']
+        assert 'system interactions' in (section_1b['title'] or '')
         assert 'Content for 1.b' in section_1b['content']
 
 

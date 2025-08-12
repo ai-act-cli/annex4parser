@@ -21,6 +21,7 @@ from sqlalchemy import (
     Integer,
     JSON,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -57,11 +58,17 @@ class Regulation(Base):
 
 class Rule(Base):
     __tablename__ = "rules"
+    __table_args__ = (
+        UniqueConstraint("regulation_id", "section_code", name="uq_rules_reg_section"),
+        Index("ix_rules_reg_parent", "regulation_id", "parent_rule_id"),
+        Index("ix_rules_parent_order", "parent_rule_id", "order_index"),
+    )
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     regulation_id = Column(UUID(as_uuid=True), ForeignKey("regulations.id"))
     section_code = Column(String(50), nullable=False)
     title = Column(Text)
     content = Column(Text)
+    order_index = Column(String(20), nullable=True)
     risk_level = Column(
         Enum("critical", "high", "medium", "low", name="risk_level"), default="medium"
     )
@@ -69,6 +76,7 @@ class Rule(Base):
     parent_rule_id = Column(UUID(as_uuid=True), ForeignKey("rules.id"), nullable=True)
     effective_date = Column(DateTime, nullable=True)
     last_modified = Column(DateTime, default=datetime.utcnow)
+    ingested_at = Column(DateTime, default=datetime.utcnow)
     regulation = relationship("Regulation", back_populates="rules")
 
 

@@ -51,6 +51,27 @@ def test_parse_rules_strips_space_before_dash():
     title = next(r["title"] for r in parsed if r["section_code"] == "Article1")
     assert title == "Scope"
 
+
+def test_order_index_zero_padding():
+    text = (
+        "Article 5 Title\n"
+        "1. First paragraph\n"
+        "   (a) Alpha\n"
+        "   (b) Beta\n"
+        "   (C) Gamma\n"
+        "10. Tenth paragraph\n"
+        "   (a) Tenth Alpha\n"
+    )
+    parsed = parse_rules(text)
+    r1 = next(r for r in parsed if r["section_code"] == "Article5.1")
+    r10 = next(r for r in parsed if r["section_code"] == "Article5.10")
+    r1a = next(r for r in parsed if r["section_code"] == "Article5.1.a")
+    r1c = next(r for r in parsed if r["section_code"] == "Article5.1.c")
+    assert r1["order_index"] == "001"
+    assert r10["order_index"] == "010"
+    assert r1a["order_index"] == "a"
+    assert r1c["order_index"] == "c"
+
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
 

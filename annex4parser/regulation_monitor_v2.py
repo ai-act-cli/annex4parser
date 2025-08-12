@@ -235,6 +235,29 @@ class RegulationMonitorV2:
             eli_data = await self._execute_sparql_query(session, endpoint, celex_id)
             logger.info(f"SPARQL data received: {eli_data is not None}")
 
+            # Стабильная ссылка на OJ-страницу через ELI:
+            # /eli/reg/{YEAR}/{NUMBER}/oj/eng для регламентов (R).
+            # Если CELEX не распознаётся — откат на стандартный CELEX-страничку.
+            def _stable_oj_url(celex: str) -> str:
+                # CELEX консолидированных текстов: 0 + YEAR + TYPE + NUMBER + '-' + YYYYMMDD
+                # Пример: 02024R1689-20241017 → базовый CELEX: 32024R1689
+                m_cons = re.match(r"^0(\d{4})([A-Z])(\d+)-\d{8}$", celex, re.I)
+                kind_map = {"R": "reg", "L": "dir", "D": "dec"}
+                if m_cons:
+                    year, kind, num = m_cons.group(1), m_cons.group(2).upper(), int(m_cons.group(3))
+                    seg = kind_map.get(kind, kind.lower())
+                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+                # Базовые акты, например 32024R1689
+                m_base = re.match(r"^3(\d{4})([A-Z])(\d+)$", celex, re.I)
+                if m_base:
+                    year, kind, num = m_base.group(1), m_base.group(2).upper(), int(m_base.group(3))
+                    seg = kind_map.get(kind, kind.lower())
+                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+                return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
+
+            meta_version = eli_data.get('version') if eli_data else None
+            meta_date = eli_data.get('date') if eli_data else None
+
             fetch_mode = "sparql_item"
             txt: Optional[str] = None
             pdf = html = None
@@ -256,14 +279,17 @@ class RegulationMonitorV2:
 
             if not txt:
                 logger.warning("SPARQL failed or returned no text; falling back to HTML-only ingestion")
-                fetch_mode = "html_fallback"
-                url = f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}"
+                if eli_data:
+                    fetch_mode = "sparql_meta_html_text"
+                else:
+                    fetch_mode = "html_fallback"
+                url = _stable_oj_url(celex_id)
                 txt = await self._fetch_html_text(session, url)
                 if not txt:
                     logger.warning("No text via HTML; skipping.")
                     return None
                 title = f"Regulation {celex_id}"
-                version = datetime.utcnow().strftime("%Y%m%d%H%M")  # fallback
+                version = meta_version or (meta_date.replace("-", "") if meta_date else datetime.utcnow().strftime("%Y%m%d%H%M"))
                 content_hash = hashlib.sha256(txt.encode()).hexdigest()
                 has_changed = self._has_content_changed(source.id, content_hash)
                 if has_changed:
@@ -273,8 +299,10 @@ class RegulationMonitorV2:
                         text=txt,
                         url=url,
                         celex_id=celex_id,
+                        expression_version=meta_version,
+                        work_date=meta_date,
                     )
-                self._log_source_operation(source.id, "success", content_hash, len(txt), None, fetch_mode)
+                self._log_source_operation(source.id, "success", content_hash, len(txt.encode()), None, fetch_mode)
                 return {"type": "eli_sparql", "source_id": source.id}
 
             # Обработка текста и метаданных
@@ -282,9 +310,10 @@ class RegulationMonitorV2:
             logger.info(f"Content hash: {content_hash[:16]}...")
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
-            name = eli_data.get('title') or f"Regulation {celex_id}"
-            expr_version = eli_data.get('version') if eli_data else None
-            date = eli_data.get('date') if eli_data else None
+            name = eli_data.get('title') if eli_data else None
+            name = name or f"Regulation {celex_id}"
+            expr_version = meta_version
+            date = meta_date
             version = (
                 expr_version
                 or (date.replace("-", "") if date else None)
@@ -295,7 +324,7 @@ class RegulationMonitorV2:
                     name=name,
                     version=version,
                     text=txt,
-                    url=( (pdf or html or {}).get("url") ) or f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}",
+                    url=((pdf or html or {}).get("url")) or _stable_oj_url(celex_id),
                     celex_id=celex_id,
                     expression_version=expr_version,
                     work_date=date,
@@ -303,10 +332,7 @@ class RegulationMonitorV2:
                 logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
             else:
                 logger.info("No changes detected, skipping regulation update")
-            self._log_source_operation(
-                source.id, "success", content_hash,
-                len(txt), None, fetch_mode
-            )
+            self._log_source_operation(source.id, "success", content_hash, len(txt.encode()), None, fetch_mode)
             return {"type": "eli_sparql", "source_id": source.id}
         except aiohttp.ClientResponseError as e:
             logger.error(
@@ -317,12 +343,12 @@ class RegulationMonitorV2:
                 e.headers,
             )
             self._log_source_operation(
-                source.id, "error", None, None, f"HTTP {e.status} {e.message}"
+                source.id, "error", None, None, f"HTTP {e.status} {e.message}", fetch_mode
             )
             return None
         except Exception as e:
             logger.exception("%s processing %s", type(e).__name__, source.id)
-            self._log_source_operation(source.id, "error", None, None, str(e))
+            self._log_source_operation(source.id, "error", None, None, str(e), fetch_mode)
             return None
     
     async def _process_rss_source(
@@ -511,8 +537,9 @@ class RegulationMonitorV2:
 
         async with session.get(
             url,
-            headers={'User-Agent': UA},
+            headers={'User-Agent': UA, 'Accept': 'application/pdf'},
             timeout=aiohttp.ClientTimeout(total=30),
+            allow_redirects=True,
         ) as resp:
             resp.raise_for_status()
             data = await resp.read()
@@ -607,7 +634,7 @@ class RegulationMonitorV2:
         work_date: Optional[str] = None,
     ) -> Regulation:
         """Ингестировать текст регуляции в базу данных."""
-        from .regulation_monitor import parse_rules, canonicalize
+        from .regulation_monitor import parse_rules, canonicalize, format_order_index
         from .legal_diff import LegalDiffAnalyzer
         
         # Проверяем, есть ли уже регуляция с таким CELEX ID
@@ -622,17 +649,26 @@ class RegulationMonitorV2:
         if work_date:
             try:
                 work_date_dt = datetime.fromisoformat(work_date)
-            except ValueError:
-                work_date_dt = None
+            except Exception:
+                try:
+                    from dateutil import parser as _dtparser  # optional
+                    work_date_dt = _dtparser.parse(work_date)
+                except Exception:
+                    logger.warning("Unparsed work_date: %r", work_date)
+                    work_date_dt = None
 
-        def _risk_bucket(section_code: str, title: str, content: str) -> str:
+        def infer_risk_level(section_code: str, content: str) -> str:
+            hard_high = ("AnnexIV", "Article9", "Article10", "Article11", "Article15")
             code = (section_code or "").lower()
-            t = (title or "").lower()
-            if code.startswith("annexiv") or code.startswith("article9") or code.startswith("article10") or code.startswith("article11") or code.startswith("article15"):
+            if any(code.startswith(h.lower()) for h in hard_high):
+                base = "high"
+            elif code.startswith(("article12", "article13", "article14", "article17")):
+                base = "medium"
+            else:
+                base = "low"
+            if re.search(r"\b(shall|must|required|prohibited|penalt|liabilit)\b", content, re.I):
                 return "high"
-            if code.startswith("article12") or code.startswith("article13") or code.startswith("article14") or code.startswith("article17"):
-                return "medium"
-            return "low"
+            return base
 
         if existing_regulation:
             # Обновляем существующую регуляцию
@@ -640,6 +676,8 @@ class RegulationMonitorV2:
             regulation.version = version
             regulation.expression_version = expression_version
             regulation.work_date = work_date_dt
+            if work_date_dt:
+                regulation.effective_date = work_date_dt
             regulation.last_updated = datetime.utcnow()
             regulation.source_url = url
         else:
@@ -699,9 +737,17 @@ class RegulationMonitorV2:
                 )
 
                 existing_rule.content = rule_data["content"]
-                existing_rule.title = rule_data["title"]
+                t = (rule_data["title"] or "").strip()
+                existing_rule.title = t or None
                 existing_rule.version = version
-                existing_rule.last_modified = work_date_dt or datetime.utcnow()
+                existing_rule.risk_level = infer_risk_level(section_code, rule_data["content"])
+                if rule_data.get("order_index") is not None:
+                    existing_rule.order_index = format_order_index(rule_data["order_index"])
+                if work_date_dt:
+                    existing_rule.effective_date = work_date_dt
+                if change.change_type != "no_change":
+                    existing_rule.last_modified = work_date_dt or datetime.utcnow()
+                existing_rule.ingested_at = datetime.utcnow()
                 old_code = existing_rule.section_code
                 if old_code != section_code:
                     existing_rule.section_code = section_code
@@ -769,16 +815,19 @@ class RegulationMonitorV2:
                             code_to_rule[parent_code] = parent
                     parent_id = parent.id if parent else None
 
+                t = (rule_data["title"] or "").strip()
                 rule = Rule(
                     regulation_id=regulation.id,
                     section_code=section_code,
-                    title=rule_data["title"],
+                    title=(t or None),
                     content=rule_data["content"],
-                    risk_level=_risk_bucket(section_code, rule_data["title"], rule_data["content"]),
+                    risk_level=infer_risk_level(section_code, rule_data["content"]),
                     version=version,
-                    effective_date=work_date_dt or datetime.utcnow(),
+                    effective_date=work_date_dt,
                     last_modified=work_date_dt or datetime.utcnow(),
                     parent_rule_id=parent_id,
+                    order_index=format_order_index(rule_data.get("order_index")) if rule_data.get("order_index") is not None else None,
+                    ingested_at=datetime.utcnow(),
                 )
                 self.db.add(rule)
                 self.db.flush()
