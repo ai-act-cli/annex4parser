@@ -489,7 +489,7 @@ class RegulationMonitorV2:
                     "Accept": "application/sparql-results+json",
                     "Accept-Language": "en",
                 },
-                timeout=aiohttp.ClientTimeout(total=300),
+                timeout=aiohttp.ClientTimeout(total=600),
             ) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
