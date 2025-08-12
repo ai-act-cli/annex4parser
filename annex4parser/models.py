@@ -40,6 +40,7 @@ class Regulation(Base):
     __tablename__ = "regulations"
     __table_args__ = (
         UniqueConstraint("celex_id", "version", name="uq_regulation_celex_version"),
+        Index("ix_regulations_celex_hash", "celex_id", "content_hash"),
     )
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
@@ -49,6 +50,7 @@ class Regulation(Base):
     work_date = Column(DateTime, nullable=True)
     effective_date = Column(DateTime, nullable=True)
     source_url = Column(Text, nullable=True)
+    content_hash = Column(String(64), nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow)
     status = Column(
         Enum("active", "draft", "superseded", name="regulation_status"), default="active"

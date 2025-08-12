@@ -214,18 +214,18 @@ class LegalDiffAnalyzer:
         if change_type == "clarification":
             return "low"
         
-        # Если семантическое сходство высокое, это может быть незначительное изменение
-        if semantic_score > 0.8:
+        # Почти идентичные тексты при малом diff считаем незначительными
+        if semantic_score > 0.9 and diff_score <= 0.10:
             return "low"
-        
+
         # Высокий diff score или низкое семантическое сходство
-        if diff_score > 0.3 or semantic_score < 0.7:
+        if diff_score > 0.4 or semantic_score < 0.6:
             return "high"
-        
+
         # Средние изменения
-        if diff_score > 0.1 or semantic_score < 0.9:
+        if diff_score > 0.15 or semantic_score < 0.85:
             return "medium"
-        
+
         # Незначительные изменения
         return "low"
     
