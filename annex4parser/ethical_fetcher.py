@@ -6,14 +6,32 @@ import asyncio
 import logging
 import time
 from typing import Optional, Dict, Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
+from urllib import robotparser
 
 import aiohttp
 
-from .robots_checker import check_robots_allowed, get_crawl_delay
+from .robots_checker import get_crawl_delay
 from .user_agents import get_user_agent
 
 logger = logging.getLogger(__name__)
+
+
+async def allowed_by_robots(session, url: str, user_agent: str) -> bool:
+    """Check robots.txt for the given URL using urllib.robotparser."""
+    parsed = urlparse(url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    robots_url = urljoin(base, "/robots.txt")
+    rp = robotparser.RobotFileParser()
+    try:
+        async with session.get(robots_url) as resp:
+            if resp.status != 200:
+                return True
+            content = await resp.text()
+        rp.parse(content.splitlines())
+    except Exception:
+        return True
+    return rp.can_fetch(user_agent, url)
 
 
 class EthicalFetcher:
@@ -48,13 +66,11 @@ class EthicalFetcher:
             return self.cache[url]
         
         # Проверяем robots.txt
-        is_allowed, rule = await check_robots_allowed(
-            self.session, url, self.user_agent, return_rule=True
-        )
-        if not is_allowed:
+        allowed = await allowed_by_robots(self.session, url, self.user_agent)
+        if not allowed:
             parsed = urlparse(url)
             logger.warning(
-                f"Robots disallow: domain={parsed.netloc}, path={parsed.path}, rule={rule}"
+                f"Robots disallow: domain={parsed.netloc}, path={parsed.path}"
             )
             return None
         

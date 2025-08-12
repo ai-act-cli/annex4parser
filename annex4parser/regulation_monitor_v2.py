@@ -295,7 +295,15 @@ class RegulationMonitorV2:
                 else:
                     fetch_mode = "html_fallback"
                 url = _stable_oj_url(celex_id)
-                txt = await self._fetch_html_text(session, url)
+                try:
+                    txt = await self._fetch_html_text(session, url)
+                except Exception:
+                    m = re.match(r"^3(\d{4})([A-Z])(\d+)$", celex_id, re.I)
+                    if m:
+                        year, kind, num = m.group(1), m.group(2).upper(), int(m.group(3))
+                        seg = {"R": "reg", "L": "dir", "D": "dec"}.get(kind, kind.lower())
+                        backup = f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+                        txt = await self._fetch_html_text(session, backup)
                 if not txt:
                     logger.warning("No text via HTML; skipping.")
                     return None
@@ -535,6 +543,11 @@ class RegulationMonitorV2:
             return None
         celex_val = rows[0]["celex"]["value"]
         date_val = rows[0].get("date", {}).get("value")
+        if not date_val:
+            m = re.match(r".*-(\d{8})$", celex_val)
+            if m:
+                d = m.group(1)
+                date_val = f"{d[:4]}-{d[4:6]}-{d[6:]}"
         return celex_val, date_val
 
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
