@@ -56,11 +56,13 @@ def canonicalize(code: str) -> str:
 
 
 def format_order_index(idx: str) -> str:
-    """Return a zero-padded string for numeric indices and keep letters as is."""
+    """Return a zero-padded string for numeric indices and lower-case letters."""
     if idx is None:
         return idx
     idx = str(idx)
-    return f"{int(idx):03d}" if idx.isdigit() else idx
+    if idx.isdigit():
+        return f"{int(idx):03d}"
+    return idx.lower()
 
 
 def fetch_regulation_text(url: str) -> str:
@@ -98,7 +100,7 @@ def parse_rules(raw_text: str) -> List[dict]:
     boundaries = []
     
     # Находим все Articles
-    for match in re.finditer(r"(?im)^(\s*Article\s+\d+[a-z]?\b)", text):
+    for match in re.finditer(r"(?im)^(\s*Article\s+\d+[a-zA-Z]?\b)", text):
         boundaries.append(("Article", match.start(), match.group(1).strip()))
     
     # Находим все Annexes (case insensitive)
@@ -117,9 +119,11 @@ def parse_rules(raw_text: str) -> List[dict]:
         if block_type == "Article":
             # Парсим Article
             lines = block_text.splitlines()
-            m = re.match(r"\s*Article\s+(\d+[a-z]?)\b(.*)", lines[0], re.I)
+            m = re.match(r"\s*Article\s+(\d+[a-zA-Z]?)\b(.*)", lines[0], re.I)
             if m:
                 code = m.group(1).strip()
+                if code[-1].isalpha():
+                    code = f"{code[:-1]}{code[-1].lower()}"
                 rest = m.group(2) or ""
                 title = re.sub(r"^\s*[–—-]\s*", "", rest).strip()
                 title_line_idx = 0
@@ -202,10 +206,10 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
                 "parent_section_code": canonicalize(parent_code),
                 "order_index": format_order_index(num),
             })
-            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", content_i)
+            sub_parts = re.split(r"(?m)^\s*\(([a-zA-Z])\)\s+", content_i)
             if len(sub_parts) >= 3:
                 for j in range(1, len(sub_parts), 2):
-                    letter = sub_parts[j]
+                    letter = sub_parts[j].lower()
                     text_j = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
                     lines_j_raw = text_j.strip().splitlines()
                     lines_j = [unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip() for ln in lines_j_raw]
@@ -247,10 +251,10 @@ def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
                 "order_index": format_order_index(num),
             })
             # Разрезаем подпункты (a), (b) ...
-            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", body_i)
+            sub_parts = re.split(r"(?m)^\s*\(([a-zA-Z])\)\s+", body_i)
             if len(sub_parts) >= 3:
                 for j in range(1, len(sub_parts), 2):
-                    letter = sub_parts[j]
+                    letter = sub_parts[j].lower()
                     text_j = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
                     lines_j = text_j.splitlines()
                     title_j = ""
