@@ -25,7 +25,6 @@ import logging
 import os
 import re
 import unicodedata
-from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -181,7 +180,8 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
         for i in range(1, len(top_parts), 2):
             num = top_parts[i]
             text_i = top_parts[i + 1] if i + 1 < len(top_parts) else ""
-            lines_i = [ln.strip() for ln in text_i.strip().splitlines()]
+            lines_i_raw = text_i.strip().splitlines()
+            lines_i = [unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip() for ln in lines_i_raw]
             title_i = (lines_i[0] if lines_i else "") or ""
             content_i = "\n".join(lines_i[1:]).strip()
             if not content_i:
@@ -199,7 +199,8 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
                 for j in range(1, len(sub_parts), 2):
                     letter = sub_parts[j]
                     text_j = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
-                    lines_j = [ln.strip() for ln in text_j.strip().splitlines()]
+                    lines_j_raw = text_j.strip().splitlines()
+                    lines_j = [unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip() for ln in lines_j_raw]
                     title_j = (lines_j[0] if lines_j else "") or ""
                     content_j = "\n".join(lines_j[1:]).strip()
                     if not content_j:
