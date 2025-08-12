@@ -91,7 +91,7 @@ def parse_rules(raw_text: str) -> List[dict]:
     boundaries = []
     
     # Находим все Articles
-    for match in re.finditer(r"(?m)^(\s*Article\s+\d+[a-z]?\b)", text):
+    for match in re.finditer(r"(?im)^(\s*Article\s+\d+[a-z]?\b)", text):
         boundaries.append(("Article", match.start(), match.group(1).strip()))
     
     # Находим все Annexes (case insensitive)
@@ -110,19 +110,32 @@ def parse_rules(raw_text: str) -> List[dict]:
         if block_type == "Article":
             # Парсим Article
             lines = block_text.splitlines()
-            m = re.match(r"Article\s+(\d+[a-z]?)\b\s*-?\s*(.*)", lines[0])
+            m = re.match(r"\s*Article\s+(\d+[a-z]?)\b(.*)", lines[0], re.I)
             if m:
                 code = m.group(1).strip()
-                title = m.group(2).strip()
-                # Fallback: заголовок может быть на следующей строке
-                if not title and len(lines) > 1:
-                    next_line = lines[1].strip()
-                    if next_line and not re.match(r"^\s*\d+\.\s*$", next_line, flags=re.I) \
-                                   and not re.match(r"^\s*ANNEX\b", next_line, flags=re.I) \
-                                   and not re.match(r"^\s*Article\b", next_line, flags=re.I):
-                        title = next_line
-                raw = "\n".join(lines[1:]).strip()
-                # упрощение переносов (двойные/тройные -> одиночный)
+                rest = m.group(2) or ""
+                title = re.sub(r"^[–—-]\s*", "", rest).strip()
+                title_line_idx = 0
+                if not title:
+                    k = 1
+                    while k < min(4, len(lines)):
+                        cand = lines[k].strip()
+                        if cand and not re.match(r"^\d+\.\s*$", cand, re.I) and not re.match(r"^(ANNEX|Article)\b", cand, re.I):
+                            title = cand
+                            title_line_idx = k
+                            break
+                        k += 1
+                if not title:
+                    buff = []
+                    for ln in lines[1:5]:
+                        s = ln.strip()
+                        if not s or re.match(r"^\d+\.\s*$", s) or re.match(r"^(ANNEX|Article)\b", s, re.I):
+                            break
+                        buff.append(s)
+                    if buff:
+                        title = " ".join(buff).split(" – ")[0].split(" — ")[0].strip()
+                        title_line_idx = len(buff)
+                raw = "\n".join(lines[title_line_idx+1:]).strip()
                 content = re.sub(r"\n{3,}", "\n\n", raw)
                 parent_code = canonicalize(f"Article{code}")
                 rules.append({
@@ -136,11 +149,22 @@ def parse_rules(raw_text: str) -> List[dict]:
             # Парсим Annex
             lines = block_text.splitlines()
             header_line = lines[0]
-            m = re.match(r"(?i)ANNEX\s+([IVXLC]+)\b\s*-?\s*(.*)", header_line)
+            m = re.match(r"(?i)\s*ANNEX\s+([IVXLC]+)\b(.*)", header_line)
             if m:
                 roman = m.group(1).upper()
-                annex_title = (m.group(2) or "").strip()
-                raw_body = "\n".join(lines[1:]).strip()
+                annex_title = re.sub(r"^[–—-]\s*", "", (m.group(2) or "").strip())
+                consumed = 0
+                if not annex_title:
+                    buff = []
+                    for ln in lines[1:5]:
+                        s = ln.strip()
+                        if not s or re.match(r"^\d+\.\s*$", s):
+                            break
+                        buff.append(s)
+                    if buff:
+                        annex_title = " ".join(buff).strip()
+                        consumed = len(buff)
+                raw_body = "\n".join(lines[1+consumed:]).strip()
                 body = re.sub(r"\n{3,}", "\n\n", raw_body)
 
                 parent_code = canonicalize(f"Annex{roman}")

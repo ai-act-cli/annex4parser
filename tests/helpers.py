@@ -6,6 +6,7 @@ from unittest.mock import Mock, AsyncMock
 import aiohttp
 from aioresponses import aioresponses
 from annex4parser.models import Source, RegulationSourceLog
+import re
 
 
 """
@@ -38,12 +39,14 @@ def create_test_source(
     active: bool = True
 ) -> Source:
     """Создает тестовый источник данных"""
+    extra = {"endpoint": url} if source_type == "eli_sparql" else None
     return Source(
         id=source_id,
         url=url,
         type=source_type,
         freq=freq,
         active=active,
+        extra=extra,
         last_fetched=datetime.now() - timedelta(hours=1),
         created_at=datetime.now(),
         updated_at=datetime.now()
@@ -76,9 +79,10 @@ def mock_eli_response(title: str = "Test Regulation", content: str = "Test conte
             "bindings": [
                 {
                     "title": {"value": title},
-                    "text": {"value": content},
                     "date": {"value": "2024-01-15"},
-                    "celex": {"value": "32024R1689"}
+                    "version": {"value": "1.0"},
+                    "item": {"value": "http://example.com/doc.pdf"},
+                    "format": {"value": "PDF"},
                 }
             ]
         }
@@ -142,8 +146,9 @@ def setup_aiohttp_mocks(
     headers: Optional[Dict] = None
 ):
     """Настраивает mock для aiohttp запросов"""
+    pattern = re.compile(re.escape(url) + ".*")
     m.add(
-        url=url,
+        url=pattern,
         method=method,
         status=status,
         body=content,

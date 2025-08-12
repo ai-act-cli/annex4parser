@@ -5,11 +5,12 @@ sources:
   # --- SPARQL ---
   - id: celex_consolidated
     type: eli_sparql
-    celex_id: "02024R1689-20240614"   # placeholder consolidated CELEX
+    celex_id: "32024R1689"   # base CELEX, latest consolidated will be resolved dynamically
+    consolidated: true
     url: "https://publications.europa.eu/webapi/rdf/sparql"
     sparql: "file:queries/ai_act_consolidated.rq"
     freq: "6h"
-    active: true   # включить, когда убедишься что запись доступна
+    active: false   # включить, когда убедишься что запись доступна
     description: "EU AI Act consolidated version"
     
   - id: ai_act_original

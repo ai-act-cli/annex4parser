@@ -8,9 +8,11 @@ import aiohttp
 MOCK_ELI_DATA = {
     "title": "Test Regulation",
     "version": "1.0",
-    "text": "Article 1.1 - Scope\nThis Regulation applies to artificial intelligence systems.",
+    "items": [{"url": "http://example.com/doc.pdf", "format": "PDF"}],
     "date": "2024-01-15"
 }
+
+MOCK_PDF_TEXT = "Article 1.1 - Scope\nThis Regulation applies to artificial intelligence systems."
 
 @patch.object(RegulationMonitorV2, '_init_sources', return_value=None)
 @pytest.mark.asyncio
@@ -27,11 +29,9 @@ async def test_new_version_creates_records(mock_init_sources, test_db, test_conf
     with patch.object(RegulationMonitorV2, "_execute_sparql_query", new=AsyncMock(return_value=MOCK_ELI_DATA)), \
          patch("annex4parser.regulation_monitor.parse_rules", return_value=[{"section_code": "1.1", "title": "Scope", "content": "This Regulation applies to AI."}]), \
          patch("annex4parser.legal_diff.LegalDiffAnalyzer.analyze_changes", return_value=SimpleNamespace(severity="medium", change_type="addition")), \
-         patch("annex4parser.legal_diff.LegalDiffAnalyzer.get_change_summary", return_value="Test summary"):
-        await mon._process_eli_source(
-            src,
-            mock_session
-        )
+         patch("annex4parser.legal_diff.LegalDiffAnalyzer.get_change_summary", return_value="Test summary"), \
+         patch.object(RegulationMonitorV2, "_fetch_pdf_text", new=AsyncMock(return_value=MOCK_PDF_TEXT)):
+        await mon._process_eli_source(src, mock_session)
     # Диагностика: выводим все Regulation
     print("Regulations in DB:", test_db.query(Regulation).all())
     assert test_db.query(Regulation).count() == 1
@@ -49,15 +49,10 @@ async def test_same_content_no_duplicate(mock_init_sources, test_db, test_config
     with patch.object(RegulationMonitorV2, "_execute_sparql_query", new=AsyncMock(return_value=MOCK_ELI_DATA)), \
          patch("annex4parser.regulation_monitor.parse_rules", return_value=[{"section_code": "1.1", "title": "Scope", "content": "This Regulation applies to AI."}]), \
          patch("annex4parser.legal_diff.LegalDiffAnalyzer.analyze_changes", return_value=SimpleNamespace(severity="medium", change_type="addition")), \
-         patch("annex4parser.legal_diff.LegalDiffAnalyzer.get_change_summary", return_value="Test summary"):
-        await mon._process_eli_source(
-            src,
-            AsyncMock()
-        )
-        await mon._process_eli_source(
-            src,
-            AsyncMock()
-        )
+         patch("annex4parser.legal_diff.LegalDiffAnalyzer.get_change_summary", return_value="Test summary"), \
+         patch.object(RegulationMonitorV2, "_fetch_pdf_text", new=AsyncMock(return_value=MOCK_PDF_TEXT)):
+        await mon._process_eli_source(src, AsyncMock())
+        await mon._process_eli_source(src, AsyncMock())
     assert test_db.query(Regulation).count() == 1
     assert test_db.query(RegulationSourceLog).count() == 2
 

@@ -25,20 +25,18 @@ UA = (
 
 # Базовый SPARQL запрос в CDM для получения цепочки WEMI и item-ресурсов
 BASE_QUERY = """
-PREFIX cdm:   <http://publications.europa.eu/ontology/cdm#>
-PREFIX purl:  <http://purl.org/dc/elements/1.1/>
-SELECT DISTINCT ?title ?date ?version ?item (STR(?format) AS ?format)
-WHERE {{
-  ?w    cdm:resource_legal_id_celex "{celex_id}" .
-  ?expr cdm:expression_belongs_to_work ?w ;
+PREFIX cdm:  <http://publications.europa.eu/ontology/cdm#>
+PREFIX purl: <http://purl.org/dc/elements/1.1/>
+PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+SELECT DISTINCT ?title ?date ?version ?item (STR(?format) AS ?format) WHERE {{
+  ?work owl:sameAs <http://publications.europa.eu/resource/celex/{celex_id}> .
+  ?expr cdm:expression_belongs_to_work ?work ;
         cdm:expression_uses_language ?lang .
-  ?lang purl:identifier ?langCode .
-  FILTER(STR(?langCode) = "ENG")
-
+  ?lang purl:identifier ?lc .
+  VALUES ?lc {{"ENG" "EN"}}
   OPTIONAL {{ ?expr cdm:expression_title ?title }}
-  OPTIONAL {{ ?w    cdm:work_date_document ?date }}
+  OPTIONAL {{ ?work cdm:work_date_document ?date }}
   OPTIONAL {{ ?expr cdm:expression_version ?version }}
-
   ?manif cdm:manifestation_manifests_expression ?expr ;
          cdm:manifestation_type ?format .
   OPTIONAL {{ ?item1 cdm:item_belongs_to_manifestation ?manif . }}
@@ -55,7 +53,8 @@ ORDER BY DESC(?date)
 )
 async def fetch_latest_eli(
     session: aiohttp.ClientSession,
-    celex_id: str
+    celex_id: str,
+    endpoint: str = ELI_ENDPOINT
 ) -> Optional[Dict[str, str]]:
     """Получить последнюю версию документа через SPARQL (CDM).
     
@@ -74,10 +73,10 @@ async def fetch_latest_eli(
     query = BASE_QUERY.format(celex_id=celex_id)
     
     params = {"query": query, "format": "application/sparql-results+json"}
-    
+
     try:
         async with session.get(
-            ELI_ENDPOINT,
+            endpoint,
             params=params,
             headers={
                 "User-Agent": UA,
@@ -99,7 +98,6 @@ async def fetch_latest_eli(
             title = first.get("title", {}).get("value")
             date = first.get("date", {}).get("value")
             version = first.get("version", {}).get("value")
-            text = first.get("text", {}).get("value")
 
             items = []
             for r in rows:
@@ -108,13 +106,22 @@ async def fetch_latest_eli(
                 if item_url:
                     items.append({"url": item_url, "format": fmt})
 
-            return {"title": title, "date": date, "version": version, "items": items, "text": text}
+            return {"title": title, "date": date, "version": version, "items": items}
             
+    except aiohttp.ClientResponseError as e:
+        logger.error(
+            "ELI fetch failed: HTTP %s %s; url=%s; headers=%s",
+            e.status,
+            e.message,
+            e.request_info.real_url,
+            e.headers,
+        )
+        raise
     except aiohttp.ClientError as e:
-        logger.error(f"HTTP error fetching ELI data for {celex_id}: {e}")
+        logger.error("HTTP error fetching ELI data for %s: %s", celex_id, e)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error fetching ELI data for {celex_id}: {e}")
+        logger.exception("Unexpected error fetching ELI data for %s", celex_id)
         raise
 
 
