@@ -239,10 +239,16 @@ class RegulationMonitorV2:
             # /eli/reg/{YEAR}/{NUMBER}/oj/eng для регламентов (R).
             # Если CELEX не распознаётся — откат на стандартный CELEX-страничку.
             def _stable_oj_url(celex: str) -> str:
-                m = re.match(r"3?(\d{4})R(\d+)", celex, re.I)
-                if m:
-                    year, num = m.group(1), str(int(m.group(2)))
-                    return f"https://eur-lex.europa.eu/eli/reg/{year}/{num}/oj/eng"
+                # CELEX консолидированных текстов: 0 + YEAR + TYPE + NUMBER + '-' + YYYYMMDD
+                # Пример: 02024R1689-20241017 → базовый CELEX: 32024R1689
+                m_cons = re.match(r"^0(\d{4})([A-Z])(\d+)-\d{8}$", celex, re.I)
+                if m_cons:
+                    year, kind, num = m_cons.group(1), m_cons.group(2).upper(), int(m_cons.group(3))
+                    return f"https://eur-lex.europa.eu/eli/{'reg' if kind=='R' else kind.lower()}/{year}/{num}/oj/eng"
+                # Базовые акты, например 32024R1689
+                m_base = re.match(r"^3(\d{4})R(\d+)$", celex, re.I)
+                if m_base:
+                    return f"https://eur-lex.europa.eu/eli/reg/{m_base.group(1)}/{int(m_base.group(2))}/oj/eng"
                 return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
 
             meta_version = eli_data.get('version') if eli_data else None
@@ -639,8 +645,13 @@ class RegulationMonitorV2:
         if work_date:
             try:
                 work_date_dt = datetime.fromisoformat(work_date)
-            except ValueError:
-                work_date_dt = None
+            except Exception:
+                try:
+                    from dateutil import parser as _dtparser  # optional
+                    work_date_dt = _dtparser.parse(work_date)
+                except Exception:
+                    logger.warning("Unparsed work_date: %r", work_date)
+                    work_date_dt = None
 
         def infer_risk_level(section_code: str, content: str) -> str:
             hard_high = ("AnnexIV", "Article9", "Article10", "Article11", "Article15")
@@ -720,7 +731,8 @@ class RegulationMonitorV2:
                 )
 
                 existing_rule.content = rule_data["content"]
-                existing_rule.title = rule_data["title"]
+                t = (rule_data["title"] or "").strip()
+                existing_rule.title = t or None
                 existing_rule.version = version
                 existing_rule.risk_level = infer_risk_level(section_code, rule_data["content"])
                 existing_rule.order_index = rule_data.get("order_index")
@@ -796,10 +808,11 @@ class RegulationMonitorV2:
                             code_to_rule[parent_code] = parent
                     parent_id = parent.id if parent else None
 
+                t = (rule_data["title"] or "").strip()
                 rule = Rule(
                     regulation_id=regulation.id,
                     section_code=section_code,
-                    title=rule_data["title"],
+                    title=(t or None),
                     content=rule_data["content"],
                     risk_level=infer_risk_level(section_code, rule_data["content"]),
                     version=version,

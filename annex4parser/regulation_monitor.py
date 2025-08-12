@@ -40,7 +40,6 @@ from .models import (
     Document,
 )
 from datetime import datetime
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -182,24 +181,36 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
         for i in range(1, len(top_parts), 2):
             num = top_parts[i]
             text_i = top_parts[i + 1] if i + 1 < len(top_parts) else ""
+            lines_i = [ln.strip() for ln in text_i.strip().splitlines()]
+            title_i = (lines_i[0] if lines_i else "") or ""
+            content_i = "\n".join(lines_i[1:]).strip()
+            if not content_i:
+                content_i = title_i
             code_i = canonicalize(f"{parent_code}.{num}")
             rules.append({
                 "section_code": code_i,
-                "title": "",
-                "content": text_i.strip(),
+                "title": title_i or None,
+                "content": content_i,
                 "parent_section_code": canonicalize(parent_code),
+                "order_index": num,
             })
-            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", text_i)
+            sub_parts = re.split(r"(?m)^\s*\(([a-z])\)\s+", content_i)
             if len(sub_parts) >= 3:
                 for j in range(1, len(sub_parts), 2):
                     letter = sub_parts[j]
                     text_j = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
+                    lines_j = [ln.strip() for ln in text_j.strip().splitlines()]
+                    title_j = (lines_j[0] if lines_j else "") or ""
+                    content_j = "\n".join(lines_j[1:]).strip()
+                    if not content_j:
+                        content_j = title_j
                     sub_code = canonicalize(f"{code_i}.{letter}")
                     rules.append({
                         "section_code": sub_code,
-                        "title": "",
-                        "content": text_j.strip(),
+                        "title": title_j or None,
+                        "content": content_j,
                         "parent_section_code": code_i,
+                        "order_index": letter,
                     })
 
 

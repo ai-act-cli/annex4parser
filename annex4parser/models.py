@@ -57,6 +57,9 @@ class Regulation(Base):
 
 class Rule(Base):
     __tablename__ = "rules"
+    __table_args__ = (
+        UniqueConstraint("regulation_id", "section_code", name="uq_rules_reg_section"),
+    )
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     regulation_id = Column(UUID(as_uuid=True), ForeignKey("regulations.id"))
     section_code = Column(String(50), nullable=False)
