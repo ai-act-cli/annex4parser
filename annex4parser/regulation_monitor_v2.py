@@ -235,6 +235,16 @@ class RegulationMonitorV2:
             eli_data = await self._execute_sparql_query(session, endpoint, celex_id)
             logger.info(f"SPARQL data received: {eli_data is not None}")
 
+            # Стабильная ссылка на OJ-страницу через ELI:
+            # /eli/reg/{YEAR}/{NUMBER}/oj/eng для регламентов (R).
+            # Если CELEX не распознаётся — откат на стандартный CELEX-страничку.
+            def _stable_oj_url(celex: str) -> str:
+                m = re.match(r"3?(\d{4})R(\d+)", celex, re.I)
+                if m:
+                    year, num = m.group(1), str(int(m.group(2)))
+                    return f"https://eur-lex.europa.eu/eli/reg/{year}/{num}/oj/eng"
+                return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
+
             meta_version = eli_data.get('version') if eli_data else None
             meta_date = eli_data.get('date') if eli_data else None
 
@@ -258,11 +268,12 @@ class RegulationMonitorV2:
                     logger.warning(f"Failed to fetch item {url_err}: {e}")
 
             if not txt:
+                logger.warning("SPARQL failed or returned no text; falling back to HTML-only ingestion")
                 if eli_data:
                     fetch_mode = "sparql_meta_html_text"
                 else:
                     fetch_mode = "html_fallback"
-                url = f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}"
+                url = _stable_oj_url(celex_id)
                 txt = await self._fetch_html_text(session, url)
                 if not txt:
                     logger.warning("No text via HTML; skipping.")
@@ -281,7 +292,7 @@ class RegulationMonitorV2:
                         expression_version=meta_version,
                         work_date=meta_date,
                     )
-                self._log_source_operation(source.id, "success", content_hash, len(txt), None, fetch_mode)
+                self._log_source_operation(source.id, "success", content_hash, len(txt.encode()), None, fetch_mode)
                 return {"type": "eli_sparql", "source_id": source.id}
 
             # Обработка текста и метаданных
@@ -303,7 +314,7 @@ class RegulationMonitorV2:
                     name=name,
                     version=version,
                     text=txt,
-                    url=((pdf or html or {}).get("url")) or f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}",
+                    url=((pdf or html or {}).get("url")) or _stable_oj_url(celex_id),
                     celex_id=celex_id,
                     expression_version=expr_version,
                     work_date=date,
@@ -311,10 +322,7 @@ class RegulationMonitorV2:
                 logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
             else:
                 logger.info("No changes detected, skipping regulation update")
-            self._log_source_operation(
-                source.id, "success", content_hash,
-                len(txt), None, fetch_mode
-            )
+            self._log_source_operation(source.id, "success", content_hash, len(txt.encode()), None, fetch_mode)
             return {"type": "eli_sparql", "source_id": source.id}
         except aiohttp.ClientResponseError as e:
             logger.error(
