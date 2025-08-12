@@ -411,7 +411,7 @@ class RegulationMonitor:
         previous_reg = (
             self.db.query(Regulation)
             .filter(Regulation.celex_id == celex_id)
-            .order_by(Regulation.version.desc())
+            .order_by(Regulation.effective_date.desc(), Regulation.last_updated.desc())
             .first()
         )
 

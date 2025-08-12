@@ -248,13 +248,13 @@ class RegulationMonitorV2:
                 if m_cons:
                     year, kind, num = m_cons.group(1), m_cons.group(2).upper(), int(m_cons.group(3))
                     seg = kind_map.get(kind, kind.lower())
-                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+                    return f"https://data.europa.eu/eli/{seg}/{year}/{num}/oj"
                 # Базовые акты, например 32024R1689
                 m_base = re.match(r"^3(\d{4})([A-Z])(\d+)$", celex, re.I)
                 if m_base:
                     year, kind, num = m_base.group(1), m_base.group(2).upper(), int(m_base.group(3))
                     seg = kind_map.get(kind, kind.lower())
-                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+                    return f"https://data.europa.eu/eli/{seg}/{year}/{num}/oj"
                 return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
 
             # Версию и дату берём из SPARQL/консолидации; если даты нет — парсим из суффикса CELEX (....-YYYYMMDD)
@@ -629,6 +629,11 @@ class RegulationMonitorV2:
             fetch_mode=fetch_mode
         )
         self.db.add(log)
+        # Обновляем last_fetched для источника при любом успешном событии
+        if status == "success":
+            src = self.db.query(Source).filter_by(id=source_id).first()
+            if src:
+                src.last_fetched = datetime.utcnow()
         self.db.commit()
 
     def _relink_children(
@@ -869,25 +874,54 @@ class RegulationMonitorV2:
                 )
                 self.db.add(alert)
 
-                mappings = (
-                    self.db.query(DocumentRuleMapping)
-                    .filter_by(rule_id=old_rule.id)
-                    .all()
-                ) if old_rule else []
+        # --- Перенос маппингов документов на новые rule_id ---
+        if prev_reg and code_to_old:
+            changed_codes = set()
+            for sc, old_rule in code_to_old.items():
+                new_rule = code_to_rule.get(sc)
+                if not new_rule:
+                    continue
+                old_norm = _sanitize_content(old_rule.content or "")
+                new_norm = _sanitize_content(new_rule.content or "")
+                ch = analyzer.analyze_changes(old_norm, new_norm, sc)
+                if ch.change_type != "no_change":
+                    changed_codes.add(sc)
 
-                for mapping in mappings:
-                    doc = self.db.get(Document, mapping.document_id)
+            old_rule_ids = [r.id for r in code_to_old.values()]
+            mappings = (
+                self.db.query(DocumentRuleMapping)
+                .filter(DocumentRuleMapping.rule_id.in_(old_rule_ids))
+                .all()
+            )
+            now = datetime.utcnow()
+            for m in mappings:
+                old_rule_obj = self.db.get(Rule, m.rule_id)
+                if not old_rule_obj:
+                    continue
+                old_sc = old_rule_obj.section_code
+                new_rule = code_to_rule.get(canonicalize(old_sc))
+                if not new_rule:
+                    continue
+                self.db.add(DocumentRuleMapping(
+                    document_id=m.document_id,
+                    rule_id=new_rule.id,
+                    confidence_score=m.confidence_score,
+                    mapped_by="auto",
+                    mapped_at=now,
+                    last_verified=now,
+                ))
+                if canonicalize(old_sc) in changed_codes:
+                    doc = self.db.get(Document, m.document_id)
                     if doc:
                         doc.compliance_status = "outdated"
-                        doc.last_modified = datetime.utcnow()
-                        doc_alert = ComplianceAlert(
+                        doc.last_modified = now
+                        self.db.add(ComplianceAlert(
                             document_id=doc.id,
-                            rule_id=rule.id,
+                            rule_id=new_rule.id,
                             alert_type="document_outdated",
                             priority="high",
-                            message=f"Document {doc.filename or doc.id} outdated due to changes in {section_code}",
-                        )
-                        self.db.add(doc_alert)
+                            message=f"Document {doc.filename or doc.id} outdated due to changes in {old_sc}",
+                        ))
 
         # Финальный проход для связывания сирот
         self.db.flush()
