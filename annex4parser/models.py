@@ -21,6 +21,7 @@ from sqlalchemy import (
     Integer,
     JSON,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -59,6 +60,8 @@ class Rule(Base):
     __tablename__ = "rules"
     __table_args__ = (
         UniqueConstraint("regulation_id", "section_code", name="uq_rules_reg_section"),
+        Index("ix_rules_reg_parent", "regulation_id", "parent_rule_id"),
+        Index("ix_rules_parent_order", "parent_rule_id", "order_index"),
     )
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     regulation_id = Column(UUID(as_uuid=True), ForeignKey("regulations.id"))
