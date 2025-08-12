@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 import aiohttp
 from sqlalchemy.orm import Session
 from tenacity import retry, wait_exponential_jitter, stop_after_attempt
+import unicodedata
 
 from .models import (
     Regulation, Rule, DocumentRuleMapping, ComplianceAlert,
@@ -196,12 +197,13 @@ class RegulationMonitorV2:
         return stats
     
     async def _process_eli_source(
-        self, 
-        source: Source, 
+        self,
+        source: Source,
         session: aiohttp.ClientSession
     ) -> Optional[Dict]:
         """Обработать ELI SPARQL источник."""
         logger.info(f"Starting _process_eli_source for source: {source.id}")
+        fetch_mode = "unknown"
         try:
             # Получаем настройки из Source.extra
             extra = source.extra or {}
@@ -217,12 +219,13 @@ class RegulationMonitorV2:
                 "endpoint", "https://publications.europa.eu/webapi/rdf/sparql"
             )
 
+            meta_date: Optional[str] = None
             if extra.get("consolidated") and celex_id:
                 latest = await self._resolve_latest_consolidated_celex(
                     session, celex_id, endpoint
                 )
                 if latest:
-                    celex_id = latest
+                    celex_id, meta_date = latest
                 else:
                     logger.warning(f"No consolidated CELEX found for base {celex_id}")
                     self._log_source_operation(source.id, "error", None, None, "No consolidated CELEX")
@@ -246,17 +249,25 @@ class RegulationMonitorV2:
                 if m_cons:
                     year, kind, num = m_cons.group(1), m_cons.group(2).upper(), int(m_cons.group(3))
                     seg = kind_map.get(kind, kind.lower())
-                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+                    return f"https://data.europa.eu/eli/{seg}/{year}/{num}/oj"
                 # Базовые акты, например 32024R1689
                 m_base = re.match(r"^3(\d{4})([A-Z])(\d+)$", celex, re.I)
                 if m_base:
                     year, kind, num = m_base.group(1), m_base.group(2).upper(), int(m_base.group(3))
                     seg = kind_map.get(kind, kind.lower())
-                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+                    return f"https://data.europa.eu/eli/{seg}/{year}/{num}/oj"
                 return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
 
+            # Версию и дату берём из SPARQL/консолидации; если даты нет — парсим из суффикса CELEX (....-YYYYMMDD)
             meta_version = eli_data.get('version') if eli_data else None
-            meta_date = eli_data.get('date') if eli_data else None
+            meta_date = (eli_data.get('date') if eli_data else None) or meta_date
+            if extra.get("consolidated") and celex_id and "-" in celex_id and not meta_date:
+                m = re.match(r".*-(\d{8})$", celex_id)
+                if m:
+                    d = m.group(1)
+                    meta_date = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+            if not meta_version and meta_date:
+                meta_version = meta_date.replace("-", "")
 
             fetch_mode = "sparql_item"
             txt: Optional[str] = None
@@ -290,23 +301,25 @@ class RegulationMonitorV2:
                     return None
                 title = f"Regulation {celex_id}"
                 version = meta_version or (meta_date.replace("-", "") if meta_date else datetime.utcnow().strftime("%Y%m%d%H%M"))
-                content_hash = hashlib.sha256(txt.encode()).hexdigest()
+                clean = self._sanitize_text(txt)
+                content_hash = hashlib.sha256(clean.encode()).hexdigest()
                 has_changed = self._has_content_changed(source.id, content_hash)
                 if has_changed:
                     self._ingest_regulation_text(
                         name=title,
                         version=version,
-                        text=txt,
+                        text=clean,
                         url=url,
                         celex_id=celex_id,
                         expression_version=meta_version,
                         work_date=meta_date,
                     )
-                self._log_source_operation(source.id, "success", content_hash, len(txt.encode()), None, fetch_mode)
+                self._log_source_operation(source.id, "success", content_hash, len(clean.encode()), None, fetch_mode)
                 return {"type": "eli_sparql", "source_id": source.id}
 
             # Обработка текста и метаданных
-            content_hash = hashlib.sha256(txt.encode()).hexdigest()
+            clean = self._sanitize_text(txt)
+            content_hash = hashlib.sha256(clean.encode()).hexdigest()
             logger.info(f"Content hash: {content_hash[:16]}...")
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
@@ -323,7 +336,7 @@ class RegulationMonitorV2:
                 regulation = self._ingest_regulation_text(
                     name=name,
                     version=version,
-                    text=txt,
+                    text=clean,
                     url=((pdf or html or {}).get("url")) or _stable_oj_url(celex_id),
                     celex_id=celex_id,
                     expression_version=expr_version,
@@ -332,7 +345,7 @@ class RegulationMonitorV2:
                 logger.info(f"Updated regulation from SPARQL source {source.id}: {regulation.name}")
             else:
                 logger.info("No changes detected, skipping regulation update")
-            self._log_source_operation(source.id, "success", content_hash, len(txt.encode()), None, fetch_mode)
+            self._log_source_operation(source.id, "success", content_hash, len(clean.encode()), None, fetch_mode)
             return {"type": "eli_sparql", "source_id": source.id}
         except aiohttp.ClientResponseError as e:
             logger.error(
@@ -372,7 +385,7 @@ class RegulationMonitorV2:
                     new_entries.append((link, content_hash, title))
                     # Логируем уникальный элемент
                     self._log_source_operation(
-                        source.id, "success", content_hash, None, None
+                        source.id, "success", content_hash, None, None, "rss_item"
                     )
 
             # Логируем сам факт обновления фида
@@ -380,8 +393,9 @@ class RegulationMonitorV2:
                 source.id,
                 "success",
                 hashlib.sha256(str(entries).encode()).hexdigest(),
-                len(str(entries)),
+                len(str(entries).encode()),
                 None,
+                "rss_feed",
             )
 
             # Создаём алерты для новых элементов
@@ -419,7 +433,8 @@ class RegulationMonitorV2:
         """Обработать HTML источник (fallback)."""
         try:
             text = await self._fetch_html_text(session, source.url)
-            content_hash = hashlib.sha256(text.encode()).hexdigest()
+            clean = self._sanitize_text(text)
+            content_hash = hashlib.sha256(clean.encode()).hexdigest()
             has_changed = self._has_content_changed(source.id, content_hash)
             celex_id = self._extract_celex_id(source.url) or "UNKNOWN"
             name = f"Regulation {celex_id}"
@@ -427,13 +442,13 @@ class RegulationMonitorV2:
                 regulation = self._ingest_regulation_text(
                     name=name,
                     version=datetime.utcnow().strftime("%Y%m%d%H%M"),
-                    text=text,
+                    text=clean,
                     url=source.url,
                     celex_id=celex_id
                 )
                 logger.info(f"Updated regulation from HTML source {source.id}")
             self._log_source_operation(
-                source.id, "success", content_hash, len(text), None, "html"
+                source.id, "success", content_hash, len(clean.encode()), None, "html"
             )
             
             return {"type": "html", "source_id": source.id}
@@ -469,13 +484,17 @@ class RegulationMonitorV2:
 
     async def _resolve_latest_consolidated_celex(
         self, session: aiohttp.ClientSession, base_celex: str, endpoint: str
-    ) -> Optional[str]:
-        """Найти последний консолидированный CELEX для базового идентификатора."""
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        """Найти последний консолидированный CELEX и дату для базового идентификатора."""
+        base = (base_celex or "").strip().upper()
+        if not re.match(r"^[0-9A-Z]+$", base) or len(base) < 2:
+            return None
+        prefix = f"0{base[1:]}-"
         query = f"""
         PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
         SELECT ?celex ?date WHERE {{
           ?w cdm:resource_legal_id_celex ?celex .
-        FILTER(STRSTARTS(?celex, CONCAT('0', SUBSTR('{base_celex}',2), '-')))
+          FILTER(STRSTARTS(?celex, "{prefix}"))
           OPTIONAL {{ ?w cdm:work_date_document ?date }}
         }} ORDER BY DESC(?date) DESC(?celex) LIMIT 1
         """
@@ -506,14 +525,23 @@ class RegulationMonitorV2:
             logger.error("Failed to resolve consolidated CELEX for %s: %s", base_celex, e)
             return None
         rows = data.get("results", {}).get("bindings", [])
-        return rows[0]["celex"]["value"] if rows else None
+        if not rows:
+            return None
+        celex_val = rows[0]["celex"]["value"]
+        date_val = rows[0].get("date", {}).get("value")
+        return celex_val, date_val
 
     async def _fetch_html_text(self, session: aiohttp.ClientSession, url: str) -> str:
         """Получить текст из HTML-страницы с уважением к robots.txt."""
         from .ethical_fetcher import ethical_fetch
 
         try:
-            html = await ethical_fetch(session, url, user_agent=UA)
+            html = await ethical_fetch(
+                session,
+                url,
+                user_agent=UA,
+                headers={"Accept-Language": "en"},
+            )
         except aiohttp.ClientResponseError as e:
             logger.error(
                 "HTTP %s %s; url=%s; headers=%s",
@@ -529,6 +557,17 @@ class RegulationMonitorV2:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         return soup.get_text(separator="\n")
+
+    def _sanitize_text(self, text: str) -> str:
+        """Нормализовать текст перед хешированием и парсингом."""
+        text = unicodedata.normalize("NFKC", text or "")
+        # выкидываем простые «висячие» сноски в конце строк
+        text = re.sub(r"\s\[\d+\]\s*$", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^\s*[\(\[]?\d+[\)\]]?\s*$", "", text, flags=re.MULTILINE)
+        # схлопываем пробелы/пустые абзацы
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     async def _fetch_pdf_text(self, session: aiohttp.ClientSession, url: str) -> str:
         """Получить текст из PDF-документа."""
@@ -599,6 +638,11 @@ class RegulationMonitorV2:
             fetch_mode=fetch_mode
         )
         self.db.add(log)
+        # Обновляем last_fetched для источника при любом успешном событии
+        if status == "success":
+            src = self.db.query(Source).filter_by(id=source_id).first()
+            if src:
+                src.last_fetched = datetime.utcnow()
         self.db.commit()
 
     def _relink_children(
@@ -634,17 +678,17 @@ class RegulationMonitorV2:
         work_date: Optional[str] = None,
     ) -> Regulation:
         """Ингестировать текст регуляции в базу данных."""
-        from .regulation_monitor import parse_rules, canonicalize, format_order_index
-        from .legal_diff import LegalDiffAnalyzer
-        
-        # Проверяем, есть ли уже регуляция с таким CELEX ID
-        existing_regulation = (
-            self.db.query(Regulation)
-            .filter_by(celex_id=celex_id)
-            .order_by(Regulation.last_updated.desc())
-            .first()
+        from .regulation_monitor import (
+            parse_rules,
+            canonicalize,
+            format_order_index,
+            _sanitize_content,
         )
-        
+        from .legal_diff import LegalDiffAnalyzer
+        import hashlib
+
+        expression_version = expression_version or version
+
         work_date_dt = None
         if work_date:
             try:
@@ -656,6 +700,115 @@ class RegulationMonitorV2:
                 except Exception:
                     logger.warning("Unparsed work_date: %r", work_date)
                     work_date_dt = None
+
+        normalized_text = _sanitize_content(text)
+        content_hash = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+
+        existing_version = (
+            self.db.query(Regulation)
+            .filter_by(celex_id=celex_id, version=version)
+            .first()
+        )
+        if existing_version:
+            return existing_version
+
+        same_hash_reg = (
+            self.db.query(Regulation)
+            .filter_by(celex_id=celex_id, content_hash=content_hash)
+            .order_by(Regulation.effective_date.desc())
+            .first()
+        )
+        if same_hash_reg:
+            if same_hash_reg.version == version:
+                return same_hash_reg
+            regulation = Regulation(
+                name=name,
+                celex_id=celex_id,
+                version=version,
+                expression_version=expression_version,
+                work_date=work_date_dt,
+                source_url=url,
+                effective_date=work_date_dt or same_hash_reg.effective_date,
+                last_updated=datetime.utcnow(),
+                status="active",
+                content_hash=content_hash,
+            )
+            self.db.add(regulation)
+            self.db.flush()
+
+            old_rules = (
+                self.db.query(Rule)
+                .filter_by(regulation_id=same_hash_reg.id)
+                .all()
+            )
+            for r in old_rules:
+                self.db.add(
+                    Rule(
+                        regulation_id=regulation.id,
+                        section_code=r.section_code,
+                        title=r.title,
+                        content=r.content,
+                        order_index=r.order_index,
+                        risk_level=r.risk_level,
+                        version=version,
+                        parent_rule_id=None,  # временно, перелинкуем ниже
+                        effective_date=work_date_dt or r.effective_date,
+                        last_modified=work_date_dt or r.last_modified,
+                        ingested_at=datetime.utcnow(),
+                    )
+                )
+            self.db.flush()
+            new_rules = (
+                self.db.query(Rule)
+                .filter_by(regulation_id=regulation.id)
+                .all()
+            )
+            by_code = {canonicalize(x.section_code): x for x in new_rules}
+            for x in new_rules:
+                code = canonicalize(x.section_code or "")
+                if "." in code:
+                    parent_code = code.rsplit(".", 1)[0]
+                    parent = by_code.get(parent_code)
+                    if parent:
+                        x.parent_rule_id = parent.id
+            # переносим связки документов на новые правила
+            old_rule_ids = [r.id for r in old_rules]
+            mappings = (
+                self.db.query(DocumentRuleMapping)
+                .filter(DocumentRuleMapping.rule_id.in_(old_rule_ids))
+                .all()
+            )
+            now = datetime.utcnow()
+            for m in mappings:
+                old_r = self.db.get(Rule, m.rule_id)
+                if not old_r:
+                    continue
+                new_r = by_code.get(canonicalize(old_r.section_code))
+                if not new_r:
+                    continue
+                exists = (
+                    self.db.query(DocumentRuleMapping)
+                    .filter_by(document_id=m.document_id, rule_id=new_r.id)
+                    .first()
+                )
+                if not exists:
+                    self.db.add(DocumentRuleMapping(
+                        document_id=m.document_id,
+                        rule_id=new_r.id,
+                        confidence_score=m.confidence_score,
+                        mapped_by="auto",
+                        mapped_at=now,
+                        last_verified=now,
+                    ))
+            self.db.commit()
+            return regulation
+
+        prev_reg = (
+            self.db.query(Regulation)
+            .filter_by(celex_id=celex_id)
+            .order_by(Regulation.effective_date.desc(), Regulation.last_updated.desc())
+            .first()
+        )
 
         def infer_risk_level(section_code: str, content: str) -> str:
             hard_high = ("AnnexIV", "Article9", "Article10", "Article11", "Article15")
@@ -669,169 +822,144 @@ class RegulationMonitorV2:
             if re.search(r"\b(shall|must|required|prohibited|penalt|liabilit)\b", content, re.I):
                 return "high"
             return base
-
-        if existing_regulation:
-            # Обновляем существующую регуляцию
-            regulation = existing_regulation
-            regulation.version = version
-            regulation.expression_version = expression_version
-            regulation.work_date = work_date_dt
-            if work_date_dt:
-                regulation.effective_date = work_date_dt
-            regulation.last_updated = datetime.utcnow()
-            regulation.source_url = url
-        else:
-            # Создаём новую регуляцию
-            regulation = Regulation(
-                name=name,
-                celex_id=celex_id,
-                version=version,
-                expression_version=expression_version,
-                work_date=work_date_dt,
-                source_url=url,
-                effective_date=work_date_dt or datetime.utcnow(),
-                last_updated=datetime.utcnow(),
-                status="active"
-            )
-            self.db.add(regulation)
-        
+        # На этом этапе мы уже проверили:
+        #  - exact match по (celex_id, version) -> return
+        #  - same_hash_reg -> клон и return
+        # Значит, это НОВАЯ версия с другим контентом — создаём новую запись.
+        regulation = Regulation(
+            name=name,
+            celex_id=celex_id,
+            version=version,
+            expression_version=expression_version,
+            work_date=work_date_dt,
+            source_url=url,
+            effective_date=work_date_dt or datetime.utcnow(),
+            last_updated=datetime.utcnow(),
+            status="active",
+        )
+        self.db.add(regulation)
         self.db.flush()
-
+        regulation.content_hash = content_hash
 
         # Парсим правила и формируем карту существующих секций
         rules_data = parse_rules(text)
+        for rd in rules_data:
+            rd["content"] = _sanitize_content(rd.get("content", ""))
+            if rd.get("title"):
+                rd["title"] = rd["title"][:120]
         logger.info("Parsed rules: %d", len(rules_data))
         analyzer = LegalDiffAnalyzer()
 
-        existing_rules = (
-            self.db.query(Rule)
-            .filter_by(regulation_id=regulation.id)
-            .all()
-        )
+        code_to_old: Dict[str, Rule] = {}
+        if prev_reg:
+            old_rules = (
+                self.db.query(Rule)
+                .filter_by(regulation_id=prev_reg.id)
+                .all()
+            )
+            for r in old_rules:
+                code_to_old[canonicalize(r.section_code)] = r
+
         code_to_rule: Dict[str, Rule] = {}
-        for r in existing_rules:
-            canon = canonicalize(r.section_code)
-            if r.section_code != canon:
-                r.section_code = canon
-            code_to_rule[canon] = r
 
         for rule_data in rules_data:
             section_code = canonicalize(rule_data["section_code"])
             parent_code = canonicalize(rule_data.get("parent_section_code")) if rule_data.get("parent_section_code") else None
+            if section_code in code_to_rule:
+                continue
+            old_rule = code_to_old.get(section_code)
+            new_norm = _sanitize_content(rule_data["content"])
+            t = (rule_data["title"] or "").strip()
+            change = None
+            if old_rule:
+                old_norm = _sanitize_content(old_rule.content or "")
+                change = analyzer.analyze_changes(old_norm, new_norm, section_code)
 
-            existing_rule = code_to_rule.get(section_code)
-            if not existing_rule:
-                existing_rule = (
-                    self.db.query(Rule)
-                    .filter_by(regulation_id=regulation.id, section_code=section_code)
-                    .first()
-                )
-                if existing_rule:
-                    code_to_rule[section_code] = existing_rule
-
-            if existing_rule:
-                change = analyzer.analyze_changes(
-                    existing_rule.content or "",
-                    rule_data["content"],
-                    section_code,
-                )
-
-                existing_rule.content = rule_data["content"]
-                t = (rule_data["title"] or "").strip()
-                existing_rule.title = t or None
-                existing_rule.version = version
-                existing_rule.risk_level = infer_risk_level(section_code, rule_data["content"])
-                if rule_data.get("order_index") is not None:
-                    existing_rule.order_index = format_order_index(rule_data["order_index"])
-                if work_date_dt:
-                    existing_rule.effective_date = work_date_dt
-                if change.change_type != "no_change":
-                    existing_rule.last_modified = work_date_dt or datetime.utcnow()
-                existing_rule.ingested_at = datetime.utcnow()
-                old_code = existing_rule.section_code
-                if old_code != section_code:
-                    existing_rule.section_code = section_code
-                    if old_code in code_to_rule:
-                        del code_to_rule[old_code]
-                    code_to_rule[section_code] = existing_rule
-                    self._relink_children(existing_rule, old_code, section_code, code_to_rule)
+            rule = Rule(
+                regulation_id=regulation.id,
+                section_code=section_code,
+                title=(t or None),
+                content=new_norm,
+                risk_level=infer_risk_level(section_code, new_norm),
+                version=version,
+                effective_date=work_date_dt,
+                last_modified=work_date_dt or datetime.utcnow(),
+                parent_rule_id=None,
+                order_index=format_order_index(rule_data.get("order_index")) if rule_data.get("order_index") is not None else None,
+                ingested_at=datetime.utcnow(),
+            )
+            if change and change.change_type == "no_change" and old_rule:
+                if work_date_dt and (not old_rule.last_modified or old_rule.last_modified > work_date_dt):
+                    rule.last_modified = work_date_dt
                 else:
-                    existing_rule.section_code = section_code
-                    code_to_rule[section_code] = existing_rule
+                    rule.last_modified = old_rule.last_modified
+            self.db.add(rule)
+            self.db.flush()
+            code_to_rule[section_code] = rule
 
-                if parent_code and existing_rule.parent_rule_id is None:
-                    parent = code_to_rule.get(parent_code)
-                    if not parent:
-                        parent = (
-                            self.db.query(Rule)
-                            .filter_by(regulation_id=regulation.id, section_code=parent_code)
-                            .first()
-                        )
-                        if parent:
-                            code_to_rule[parent_code] = parent
-                    if parent:
-                        existing_rule.parent_rule_id = parent.id
+            if parent_code and rule.parent_rule_id is None:
+                parent = code_to_rule.get(parent_code)
+                if parent:
+                    rule.parent_rule_id = parent.id
 
-                if change.severity in ["high", "critical", "major"]:
-                    prio = "urgent" if change.severity in ["high", "critical", "major"] else "medium"
-                    alert = ComplianceAlert(
-                        rule_id=existing_rule.id,
-                        alert_type="rule_updated",
-                        priority=prio,
-                        message=f"Rule {section_code} updated: {change.change_type} - {analyzer.get_change_summary(change)}",
-                    )
-                    self.db.add(alert)
-
-                    mappings = (
-                        self.db.query(DocumentRuleMapping)
-                        .filter_by(rule_id=existing_rule.id)
-                        .all()
-                    )
-
-                    for mapping in mappings:
-                        doc = self.db.get(Document, mapping.document_id)
-                        if doc:
-                            doc.compliance_status = "outdated"
-                            doc.last_modified = datetime.utcnow()
-                            doc_alert = ComplianceAlert(
-                                document_id=doc.id,
-                                rule_id=existing_rule.id,
-                                alert_type="document_outdated",
-                                priority="high",
-                                message=f"Document {doc.filename or doc.id} outdated due to changes in {section_code}",
-                            )
-                            self.db.add(doc_alert)
-            else:
-                parent_id = None
-                if parent_code:
-                    parent = code_to_rule.get(parent_code)
-                    if not parent:
-                        parent = (
-                            self.db.query(Rule)
-                            .filter_by(regulation_id=regulation.id, section_code=parent_code)
-                            .first()
-                        )
-                        if parent:
-                            code_to_rule[parent_code] = parent
-                    parent_id = parent.id if parent else None
-
-                t = (rule_data["title"] or "").strip()
-                rule = Rule(
-                    regulation_id=regulation.id,
-                    section_code=section_code,
-                    title=(t or None),
-                    content=rule_data["content"],
-                    risk_level=infer_risk_level(section_code, rule_data["content"]),
-                    version=version,
-                    effective_date=work_date_dt,
-                    last_modified=work_date_dt or datetime.utcnow(),
-                    parent_rule_id=parent_id,
-                    order_index=format_order_index(rule_data.get("order_index")) if rule_data.get("order_index") is not None else None,
-                    ingested_at=datetime.utcnow(),
+            if change and change.severity in ["high", "critical", "major"]:
+                prio = "urgent" if change.severity in ["high", "critical", "major"] else "medium"
+                alert = ComplianceAlert(
+                    rule_id=rule.id,
+                    alert_type="rule_updated",
+                    priority=prio,
+                    message=f"Rule {section_code} updated: {change.change_type} - {analyzer.get_change_summary(change)}",
                 )
-                self.db.add(rule)
-                self.db.flush()
-                code_to_rule[section_code] = rule
+                self.db.add(alert)
+
+        # --- Перенос маппингов документов на новые rule_id ---
+        if prev_reg and code_to_old:
+            changed_codes = set()
+            for sc, old_rule in code_to_old.items():
+                new_rule = code_to_rule.get(sc)
+                if not new_rule:
+                    continue
+                old_norm = _sanitize_content(old_rule.content or "")
+                new_norm = _sanitize_content(new_rule.content or "")
+                ch = analyzer.analyze_changes(old_norm, new_norm, sc)
+                if ch.change_type != "no_change":
+                    changed_codes.add(sc)
+
+            old_rule_ids = [r.id for r in code_to_old.values()]
+            mappings = (
+                self.db.query(DocumentRuleMapping)
+                .filter(DocumentRuleMapping.rule_id.in_(old_rule_ids))
+                .all()
+            )
+            now = datetime.utcnow()
+            for m in mappings:
+                old_rule_obj = self.db.get(Rule, m.rule_id)
+                if not old_rule_obj:
+                    continue
+                old_sc = old_rule_obj.section_code
+                new_rule = code_to_rule.get(canonicalize(old_sc))
+                if not new_rule:
+                    continue
+                self.db.add(DocumentRuleMapping(
+                    document_id=m.document_id,
+                    rule_id=new_rule.id,
+                    confidence_score=m.confidence_score,
+                    mapped_by="auto",
+                    mapped_at=now,
+                    last_verified=now,
+                ))
+                if canonicalize(old_sc) in changed_codes:
+                    doc = self.db.get(Document, m.document_id)
+                    if doc:
+                        doc.compliance_status = "outdated"
+                        doc.last_modified = now
+                        self.db.add(ComplianceAlert(
+                            document_id=doc.id,
+                            rule_id=new_rule.id,
+                            alert_type="document_outdated",
+                            priority="high",
+                            message=f"Document {doc.filename or doc.id} outdated due to changes in {old_sc}",
+                        ))
 
         # Финальный проход для связывания сирот
         self.db.flush()

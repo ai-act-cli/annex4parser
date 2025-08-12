@@ -50,6 +50,11 @@ def main(argv: List[str] | None = None) -> int:
         help="URL from which to fetch the regulation text",
     )
     p1.add_argument(
+        "--celex-id",
+        required=True,
+        help="CELEX identifier for the regulation",
+    )
+    p1.add_argument(
         "--db-url",
         default="sqlite:///compliance.db",
         help="SQLAlchemy database URL (default: sqlite:///compliance.db)",
@@ -89,7 +94,7 @@ def main(argv: List[str] | None = None) -> int:
     try:
         if args.cmd == "update-single":
             monitor = RegulationMonitor(db=session, cache_dir=args.cache_dir)
-            reg = monitor.update(name=args.name, version=args.version, url=args.url)
+            reg = monitor.update(name=args.name, version=args.version, url=args.url, celex_id=args.celex_id)
             print(f"Processed {reg.name} version {reg.version}.")
         elif args.cmd == "update-all":
             from .regulation_monitor_v2 import RegulationMonitorV2

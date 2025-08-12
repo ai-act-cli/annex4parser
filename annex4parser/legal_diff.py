@@ -214,18 +214,36 @@ class LegalDiffAnalyzer:
         if change_type == "clarification":
             return "low"
         
-        # Если семантическое сходство высокое, это может быть незначительное изменение
-        if semantic_score > 0.8:
+        import os
+        def _f(name: str, default: float) -> float:
+            raw = os.getenv(name)
+            try:
+                return max(0.0, min(1.0, float(raw))) if raw is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        SEM_LOW = _f("LEGALDIFF_SEM_LOW", 0.9)
+        DIFF_LOW = _f("LEGALDIFF_DIFF_LOW", 0.10)
+        SEM_HIGH = _f("LEGALDIFF_SEM_HIGH", 0.6)
+        DIFF_HIGH = _f("LEGALDIFF_DIFF_HIGH", 0.4)
+        SEM_MED = _f("LEGALDIFF_SEM_MED", 0.85)
+        DIFF_MED = _f("LEGALDIFF_DIFF_MED", 0.15)
+
+        diff_score = 0.0 if diff_score is None else diff_score
+        semantic_score = 0.0 if semantic_score is None else semantic_score
+
+        # Почти идентичные тексты при малом diff считаем незначительными
+        if semantic_score > SEM_LOW and diff_score <= DIFF_LOW:
             return "low"
-        
+
         # Высокий diff score или низкое семантическое сходство
-        if diff_score > 0.3 or semantic_score < 0.7:
+        if diff_score > DIFF_HIGH or semantic_score < SEM_HIGH:
             return "high"
-        
+
         # Средние изменения
-        if diff_score > 0.1 or semantic_score < 0.9:
+        if diff_score > DIFF_MED or semantic_score < SEM_MED:
             return "medium"
-        
+
         # Незначительные изменения
         return "low"
     
