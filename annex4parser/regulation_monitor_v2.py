@@ -486,7 +486,10 @@ class RegulationMonitorV2:
         self, session: aiohttp.ClientSession, base_celex: str, endpoint: str
     ) -> Optional[Tuple[str, Optional[str]]]:
         """Найти последний консолидированный CELEX и дату для базового идентификатора."""
-        prefix = f"0{base_celex[1:]}-"
+        base = (base_celex or "").strip().upper()
+        if not re.match(r"^[0-9A-Z]+$", base) or len(base) < 2:
+            return None
+        prefix = f"0{base[1:]}-"
         query = f"""
         PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
         SELECT ?celex ?date WHERE {{

@@ -371,7 +371,7 @@ class RegulationMonitor:
     # ------------------------------------------------------------------
     # Main update routine
     # ------------------------------------------------------------------
-    def update(self, name: str, version: str, url: str, celex_id: str = "UNKNOWN") -> Regulation:
+    def update(self, name: str, version: str, url: str, celex_id: str) -> Regulation:
         """Fetch a new version of a regulation and update the database.
 
         This method wraps the legacy :func:`update_regulation` logic with
@@ -503,7 +503,7 @@ class RegulationMonitor:
 _default_monitor: Optional[RegulationMonitor] = None
 
 
-def update_regulation(db: Session, name: str, version: str, url: str, celex_id: str = "UNKNOWN") -> Regulation:
+def update_regulation(db: Session, name: str, version: str, url: str, celex_id: str) -> Regulation:
     """Backward compatible wrapper around :meth:`RegulationMonitor.update`.
 
     This function will lazily instantiate a :class:`RegulationMonitor`

@@ -86,7 +86,8 @@ with Session() as session:
     regulation = monitor.update(
         name="EU AI Act",
         version="2024.1",
-        url="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32023R0988"
+        url="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32023R0988",
+        celex_id="32023R0988"
     )
     print(f"Loaded {len(regulation.rules)} rules")
 ```

@@ -86,7 +86,7 @@ def test_update_regulation_creates_alerts(monkeypatch):
 
     # first version
     monkeypatch.setattr('annex4parser.regulation_monitor.fetch_regulation_text', lambda url: old_text)
-    update_regulation(session, 'EU AI Act', '1', 'http://example.com')
+    update_regulation(session, 'EU AI Act', '1', 'http://example.com', 'CELEX')
 
     # create document mapped to Article9.2
     rule_v1 = session.query(Rule).filter_by(section_code='Article9.2').first()
@@ -98,7 +98,7 @@ def test_update_regulation_creates_alerts(monkeypatch):
 
     # new version with updated article 9.2
     monkeypatch.setattr('annex4parser.regulation_monitor.fetch_regulation_text', lambda url: new_text)
-    update_regulation(session, 'EU AI Act', '2', 'http://example.com')
+    update_regulation(session, 'EU AI Act', '2', 'http://example.com', 'CELEX')
 
     alerts = session.query(ComplianceAlert).all()
     assert len(alerts) == 2
