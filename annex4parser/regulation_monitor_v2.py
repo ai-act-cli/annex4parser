@@ -242,13 +242,17 @@ class RegulationMonitorV2:
                 # CELEX консолидированных текстов: 0 + YEAR + TYPE + NUMBER + '-' + YYYYMMDD
                 # Пример: 02024R1689-20241017 → базовый CELEX: 32024R1689
                 m_cons = re.match(r"^0(\d{4})([A-Z])(\d+)-\d{8}$", celex, re.I)
+                kind_map = {"R": "reg", "L": "dir", "D": "dec"}
                 if m_cons:
                     year, kind, num = m_cons.group(1), m_cons.group(2).upper(), int(m_cons.group(3))
-                    return f"https://eur-lex.europa.eu/eli/{'reg' if kind=='R' else kind.lower()}/{year}/{num}/oj/eng"
+                    seg = kind_map.get(kind, kind.lower())
+                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
                 # Базовые акты, например 32024R1689
-                m_base = re.match(r"^3(\d{4})R(\d+)$", celex, re.I)
+                m_base = re.match(r"^3(\d{4})([A-Z])(\d+)$", celex, re.I)
                 if m_base:
-                    return f"https://eur-lex.europa.eu/eli/reg/{m_base.group(1)}/{int(m_base.group(2))}/oj/eng"
+                    year, kind, num = m_base.group(1), m_base.group(2).upper(), int(m_base.group(3))
+                    seg = kind_map.get(kind, kind.lower())
+                    return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
                 return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
 
             meta_version = eli_data.get('version') if eli_data else None
