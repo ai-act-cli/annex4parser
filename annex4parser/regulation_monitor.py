@@ -125,7 +125,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                 if code[-1].isalpha():
                     code = f"{code[:-1]}{code[-1].lower()}"
                 rest = m.group(2) or ""
-                title = re.sub(r"^\s*[–—-]\s*", "", rest).strip()
+                title = re.sub(r"^\s*[\u2013\u2014\-]\s*", "", rest).strip()
                 title_line_idx = 0
                 if not title:
                     for k in range(1, min(8, len(lines))):
@@ -136,7 +136,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                             break
                         if re.match(r"^\d+\.\s+", cand):
                             break
-                        title = re.sub(r"^[–—-:]\s*", "", cand).strip()
+                        title = re.sub(r"^[\u2013\u2014:\-]\s*", "", cand).strip()
                         title_line_idx = k
                         break
                 rule_title = title or None
@@ -157,7 +157,7 @@ def parse_rules(raw_text: str) -> List[dict]:
             m = re.match(r"(?i)\s*ANNEX\s+([IVXLC]+)\b(.*)", header_line)
             if m:
                 roman = m.group(1).upper()
-                annex_title = re.sub(r"^[–—-]\s*", "", (m.group(2) or "").strip())
+                annex_title = re.sub(r"^[\u2013\u2014\-]\s*", "", (m.group(2) or "").strip())
                 consumed = 0
                 if not annex_title:
                     buff = []
