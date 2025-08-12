@@ -43,7 +43,7 @@ class Regulation(Base):
         Index("ix_regulations_celex_hash", "celex_id", "content_hash"),
     )
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    name = Column(String(255), nullable=False)
+    name = Column(Text, nullable=False)
     celex_id = Column(String(20), nullable=False)
     version = Column(String(50), nullable=False)
     expression_version = Column(String(50), nullable=True)

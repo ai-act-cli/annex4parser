@@ -348,6 +348,7 @@ class RegulationMonitorV2:
             self._log_source_operation(source.id, "success", content_hash, len(clean.encode()), None, fetch_mode)
             return {"type": "eli_sparql", "source_id": source.id}
         except aiohttp.ClientResponseError as e:
+            self.db.rollback()
             logger.error(
                 "HTTP %s %s; url=%s; headers=%s",
                 e.status,
@@ -361,6 +362,7 @@ class RegulationMonitorV2:
             return None
         except Exception as e:
             logger.exception("%s processing %s", type(e).__name__, source.id)
+            self.db.rollback()
             self._log_source_operation(source.id, "error", None, None, str(e), fetch_mode)
             return None
     
@@ -409,6 +411,7 @@ class RegulationMonitorV2:
             }
             
         except aiohttp.ClientResponseError as e:
+            self.db.rollback()
             logger.error(
                 "HTTP %s %s; url=%s; headers=%s",
                 e.status,
@@ -422,6 +425,7 @@ class RegulationMonitorV2:
             return None
         except Exception as e:
             logger.exception("%s processing %s", type(e).__name__, source.id)
+            self.db.rollback()
             self._log_source_operation(source.id, "error", None, None, str(e))
             return None
     
@@ -454,6 +458,7 @@ class RegulationMonitorV2:
             return {"type": "html", "source_id": source.id}
             
         except aiohttp.ClientResponseError as e:
+            self.db.rollback()
             logger.error(
                 "HTTP %s %s; url=%s; headers=%s",
                 e.status,
@@ -467,6 +472,7 @@ class RegulationMonitorV2:
             return None
         except Exception as e:
             logger.exception("%s processing %s", type(e).__name__, source.id)
+            self.db.rollback()
             self._log_source_operation(source.id, "error", None, None, str(e), "html")
             return None
     
@@ -540,7 +546,6 @@ class RegulationMonitorV2:
                 session,
                 url,
                 user_agent=UA,
-                headers={"Accept-Language": "en"},
             )
         except aiohttp.ClientResponseError as e:
             logger.error(
