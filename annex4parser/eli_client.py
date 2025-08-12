@@ -23,28 +23,29 @@ UA = (
     "Annex4ComplianceBot/1.2 (+https://your-domain.example/contact)"
 )
 
-# Базовый SPARQL запрос в CDM для получения последней версии документа
+# Базовый SPARQL запрос в CDM для получения цепочки WEMI и item-ресурсов
 BASE_QUERY = """
-PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
-SELECT ?date ?version ?text ?title ?item ?format WHERE {{
-  ?w cdm:resource_legal_id_celex "{celex_id}" .
+PREFIX cdm:   <http://publications.europa.eu/ontology/cdm#>
+PREFIX purl:  <http://purl.org/dc/elements/1.1/>
+SELECT DISTINCT ?title ?date ?version ?item (STR(?format) AS ?format)
+WHERE {{
+  ?w    cdm:resource_legal_id_celex "{celex_id}" .
   ?expr cdm:expression_belongs_to_work ?w ;
-        cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/ENG> .
+        cdm:expression_uses_language ?lang .
+  ?lang purl:identifier ?langCode .
+  FILTER(STR(?langCode) = "ENG")
+
   OPTIONAL {{ ?expr cdm:expression_title ?title }}
-  OPTIONAL {{ ?w cdm:work_date_document ?date }}
+  OPTIONAL {{ ?w    cdm:work_date_document ?date }}
   OPTIONAL {{ ?expr cdm:expression_version ?version }}
-  OPTIONAL {{
-    ?expr cdm:expression_legal_resource ?res .
-    ?res cdm:legal_resource_legal_text ?text
-  }}
-  ?m  cdm:manifestation_manifests_expression ?expr ;
-      cdm:manifestation_type ?format .
-  OPTIONAL {{ ?item1 cdm:item_belongs_to_manifestation ?m }}
-  OPTIONAL {{ ?m     cdm:manifestation_has_item ?item2 }}
+
+  ?manif cdm:manifestation_manifests_expression ?expr ;
+         cdm:manifestation_type ?format .
+  OPTIONAL {{ ?item1 cdm:item_belongs_to_manifestation ?manif . }}
+  OPTIONAL {{ ?manif cdm:manifestation_has_item ?item2 . }}
   BIND(COALESCE(?item1, ?item2) AS ?item)
 }}
 ORDER BY DESC(?date)
-LIMIT 1
 """
 
 
@@ -72,10 +73,7 @@ async def fetch_latest_eli(
     """
     query = BASE_QUERY.format(celex_id=celex_id)
     
-    params = {
-        "query": query,
-        "format": "application/sparql-results+json"
-    }
+    params = {"query": query, "format": "application/sparql-results+json"}
     
     try:
         async with session.get(
@@ -91,19 +89,26 @@ async def fetch_latest_eli(
             resp.raise_for_status()
             data = await resp.json()
             
-            if not data.get("results", {}).get("bindings"):
+            rows = data.get("results", {}).get("bindings", [])
+            if not rows:
                 logger.warning(f"No results found for CELEX ID: {celex_id}")
                 return None
-                
-            result = data["results"]["bindings"][0]
-            return {
-                "date": result.get("date", {}).get("value"),
-                "version": result.get("version", {}).get("value"),
-                "text": result.get("text", {}).get("value"),
-                "title": result.get("title", {}).get("value", "Unknown Title"),
-                "item_url": result.get("item", {}).get("value"),
-                "format": result.get("format", {}).get("value"),
-            }
+
+            # Метаданные берём из первой строки
+            first = rows[0]
+            title = first.get("title", {}).get("value")
+            date = first.get("date", {}).get("value")
+            version = first.get("version", {}).get("value")
+            text = first.get("text", {}).get("value")
+
+            items = []
+            for r in rows:
+                item_url = r.get("item", {}).get("value")
+                fmt = r.get("format", {}).get("value")
+                if item_url:
+                    items.append({"url": item_url, "format": fmt})
+
+            return {"title": title, "date": date, "version": version, "items": items, "text": text}
             
     except aiohttp.ClientError as e:
         logger.error(f"HTTP error fetching ELI data for {celex_id}: {e}")
@@ -128,7 +133,7 @@ if __name__ == "__main__":
             print(f"Title: {result['title']}")
             print(f"Version: {result['version']}")
             print(f"Date: {result['date']}")
-            print(f"Text length: {len(result['text'])} chars")
+            print(f"Items: {len(result['items'])}")
         else:
             print("Document not found")
     

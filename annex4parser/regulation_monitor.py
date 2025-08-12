@@ -114,7 +114,16 @@ def parse_rules(raw_text: str) -> List[dict]:
             if m:
                 code = m.group(1).strip()
                 title = m.group(2).strip()
-                content = "\n".join(lines[1:]).strip()
+                # Fallback: заголовок может быть на следующей строке
+                if not title and len(lines) > 1:
+                    next_line = lines[1].strip()
+                    if next_line and not re.match(r"^\s*\d+\.\s*$", next_line, flags=re.I) \
+                                   and not re.match(r"^\s*ANNEX\b", next_line, flags=re.I) \
+                                   and not re.match(r"^\s*Article\b", next_line, flags=re.I):
+                        title = next_line
+                raw = "\n".join(lines[1:]).strip()
+                # упрощение переносов (двойные/тройные -> одиночный)
+                content = re.sub(r"\n{3,}", "\n\n", raw)
                 parent_code = canonicalize(f"Article{code}")
                 rules.append({
                     "section_code": parent_code,
@@ -131,7 +140,8 @@ def parse_rules(raw_text: str) -> List[dict]:
             if m:
                 roman = m.group(1).upper()
                 annex_title = (m.group(2) or "").strip()
-                body = "\n".join(lines[1:]).strip()
+                raw_body = "\n".join(lines[1:]).strip()
+                body = re.sub(r"\n{3,}", "\n\n", raw_body)
 
                 parent_code = canonicalize(f"Annex{roman}")
                 rules.append({
