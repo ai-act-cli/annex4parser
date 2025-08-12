@@ -10,7 +10,7 @@ sources:
     url: "https://publications.europa.eu/webapi/rdf/sparql"
     sparql: "file:queries/ai_act_consolidated.rq"
     freq: "6h"
-    active: false   # включить, когда убедишься что запись доступна
+    active: true   # включить, когда убедишься что запись доступна
     description: "EU AI Act consolidated version"
     
   - id: ai_act_original
