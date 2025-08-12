@@ -167,4 +167,4 @@ class RegulationSourceLog(Base):
     response_time = Column(Float)  # время ответа в секундах
     error_message = Column(Text, nullable=True)
     bytes_downloaded = Column(Integer, nullable=True)
-    fetch_mode = Column(String(20), nullable=True)  # e.g., sparql_text, sparql_item, html_fallback
+    fetch_mode = Column(String(30), nullable=True)  # e.g., sparql_text, sparql_item, html_fallback
