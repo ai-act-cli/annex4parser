@@ -78,9 +78,17 @@ class EthicalFetcher:
                 self.cache[url] = content
 
             return content
-        except aiohttp.ClientResponseError:
+        except aiohttp.ClientResponseError as e:
+            logger.error(
+                "HTTP %s %s; url=%s; headers=%s",
+                e.status,
+                e.message,
+                e.request_info.real_url,
+                e.headers,
+            )
             raise
-        except Exception:
+        except Exception as e:
+            logger.error("Failed to fetch %s: %s", url, e)
             return None
     
     async def _respect_crawl_delay(self, url: str, delay: float):
