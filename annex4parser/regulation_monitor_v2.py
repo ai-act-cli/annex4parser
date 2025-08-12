@@ -25,6 +25,7 @@ from .models import (
     Source, RegulationSourceLog, Document
 )
 from .rss_listener import fetch_rss_feed, RSSMonitor
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -225,19 +226,25 @@ class RegulationMonitorV2:
 
             fetch_mode = "sparql_text"
             txt: Optional[str] = None
+            pdf = html = None
 
             if eli_data:
-                txt = eli_data.get('text')
-                if not txt and eli_data.get('item_url'):
+                txt = eli_data.get("text")
+                if not txt:
+                    # выбираем PDF прежде всего, затем HTML
                     fetch_mode = "sparql_item"
-                    try:
-                        fmt = eli_data.get('format', '').upper()
-                        if 'PDF' in fmt:
-                            txt = await self._fetch_pdf_text(session, eli_data['item_url'])
-                        else:
-                            txt = await self._fetch_html_text(session, eli_data['item_url'])
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch item {eli_data['item_url']}: {e}")
+                    items = eli_data.get("items") or []
+                    pdf = next((i for i in items if i.get("format", "").upper().find("PDF") >= 0), None)
+                    html = next((i for i in items if i.get("format", "").upper().find("HTML") >= 0), None)
+                    item = pdf or html
+                    if item:
+                        try:
+                            if item["format"].upper().find("PDF") >= 0:
+                                txt = await self._fetch_pdf_text(session, item["url"])
+                            else:
+                                txt = await self._fetch_html_text(session, item["url"])
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch item {item['url']}: {e}")
 
             if not txt:
                 logger.warning("SPARQL failed or returned no text; falling back to HTML-only ingestion")
@@ -248,7 +255,7 @@ class RegulationMonitorV2:
                     logger.warning("No text via HTML; skipping.")
                     return None
                 title = f"Regulation {celex_id}"
-                version = datetime.utcnow().strftime("%Y%m%d%H%M")
+                version = datetime.utcnow().strftime("%Y%m%d%H%M")  # fallback
                 content_hash = hashlib.sha256(txt.encode()).hexdigest()
                 has_changed = self._has_content_changed(source.id, content_hash)
                 if has_changed:
@@ -267,16 +274,20 @@ class RegulationMonitorV2:
             logger.info(f"Content hash: {content_hash[:16]}...")
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
-            name = eli_data.get('title', f"Regulation {celex_id}") if eli_data else f"Regulation {celex_id}"
+            name = eli_data.get('title') or f"Regulation {celex_id}"
             expr_version = eli_data.get('version') if eli_data else None
             date = eli_data.get('date') if eli_data else None
-            version = expr_version or date or datetime.utcnow().strftime("%Y%m%d%H%M")
+            version = (
+                expr_version
+                or (date.replace("-", "") if date else None)
+                or datetime.utcnow().strftime("%Y%m%d%H%M")
+            )
             if has_changed:
                 regulation = self._ingest_regulation_text(
                     name=name,
                     version=version,
                     text=txt,
-                    url=eli_data.get('item_url') if eli_data and eli_data.get('item_url') else f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}",
+                    url=( (pdf or html or {}).get("url") ) or f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex_id}",
                     celex_id=celex_id,
                     expression_version=expr_version,
                     work_date=date,
@@ -543,6 +554,15 @@ class RegulationMonitorV2:
             except ValueError:
                 work_date_dt = None
 
+        def _risk_bucket(section_code: str, title: str, content: str) -> str:
+            code = (section_code or "").lower()
+            t = (title or "").lower()
+            if code.startswith("annexiv") or code.startswith("article9") or code.startswith("article10") or code.startswith("article11") or code.startswith("article15"):
+                return "high"
+            if code.startswith("article12") or code.startswith("article13") or code.startswith("article14") or code.startswith("article17"):
+                return "medium"
+            return "low"
+
         if existing_regulation:
             # Обновляем существующую регуляцию
             regulation = existing_regulation
@@ -610,7 +630,7 @@ class RegulationMonitorV2:
                 existing_rule.content = rule_data["content"]
                 existing_rule.title = rule_data["title"]
                 existing_rule.version = version
-                existing_rule.last_modified = datetime.utcnow()
+                existing_rule.last_modified = work_date_dt or datetime.utcnow()
                 old_code = existing_rule.section_code
                 if old_code != section_code:
                     existing_rule.section_code = section_code
@@ -683,10 +703,10 @@ class RegulationMonitorV2:
                     section_code=section_code,
                     title=rule_data["title"],
                     content=rule_data["content"],
-                    risk_level="medium",
+                    risk_level=_risk_bucket(section_code, rule_data["title"], rule_data["content"]),
                     version=version,
-                    effective_date=datetime.utcnow(),
-                    last_modified=datetime.utcnow(),
+                    effective_date=work_date_dt or datetime.utcnow(),
+                    last_modified=work_date_dt or datetime.utcnow(),
                     parent_rule_id=parent_id,
                 )
                 self.db.add(rule)
