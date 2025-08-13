@@ -20,7 +20,7 @@ import aiohttp
 from sqlalchemy.orm import Session
 from tenacity import retry, wait_exponential_jitter, stop_after_attempt
 import unicodedata
-from urllib.parse import quote
+from yarl import URL
 
 from .models import (
     Regulation, Rule, DocumentRuleMapping, ComplianceAlert,
@@ -335,11 +335,7 @@ class RegulationMonitorV2:
             name = name or f"Regulation {celex_id}"
             expr_version = meta_version
             date = meta_date
-            version = (
-                expr_version
-                or (date.replace("-", "") if date else None)
-                or datetime.utcnow().strftime("%Y%m%d%H%M")
-            )
+            version = expr_version or (date.replace("-", "") if date else None)
             if has_changed:
                 regulation = self._ingest_regulation_text(
                     name=name,
@@ -450,8 +446,8 @@ class RegulationMonitorV2:
             try:
                 text = await self._fetch_html_text(session, url)
             except Exception:
-                url = quote(source.url, safe=":/?&=%")
-                async with session.get(url) as resp:
+                url = source.url
+                async with session.get(URL(url, encoded=True)) as resp:
                     resp.raise_for_status()
                     html = await resp.text()
                 from bs4 import BeautifulSoup
