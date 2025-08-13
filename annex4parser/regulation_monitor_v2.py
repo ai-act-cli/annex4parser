@@ -854,8 +854,6 @@ class RegulationMonitorV2:
         rules_data = parse_rules(text)
         for rd in rules_data:
             rd["content"] = _sanitize_content(rd.get("content", ""))
-            if rd.get("title"):
-                rd["title"] = rd["title"][:120]
         logger.info("Parsed rules: %d", len(rules_data))
         analyzer = LegalDiffAnalyzer()
 
