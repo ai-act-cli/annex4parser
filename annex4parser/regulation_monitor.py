@@ -43,6 +43,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+STOP_START = re.compile(r"^(and|or|for|where|when|which|that)\b", re.I)
+
 
 def canonicalize(code: str) -> str:
     """Normalize section codes by removing spaces and unifying delimiters."""
@@ -187,7 +189,12 @@ def parse_rules(raw_text: str) -> List[dict]:
                             continue
                         if marker_seen:
                             break
-                        title = re.sub(r"^[\u2013\u2014:\-]\s*", "", cand).strip()
+                        cand_norm = re.sub(r"^[\u2013\u2014:\-]\s*", "", cand).strip()
+                        if not cand_norm:
+                            continue
+                        if cand_norm[:1].islower() or STOP_START.match(cand_norm):
+                            continue
+                        title = cand_norm
                         title_line_idx = k
                         break
                 rule_title = (title or None)
@@ -215,27 +222,31 @@ def parse_rules(raw_text: str) -> List[dict]:
                     # Удаляем французский дубль и правую часть двуязычных заголовков
                     annex_title = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", annex_title).strip()
                     annex_title = re.split(r"\s{2,}", annex_title)[0].strip()
+                if annex_title and (annex_title[:1].islower() or STOP_START.match(annex_title)):
+                    annex_title = ""
 
                 if not annex_title:
                     # Берём первую осмысленную строку после ANNEX
                     k = 1
                     buff: List[str] = []
                     while k < len(lines):
-                        t = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
-                        if not t:
+                        t_norm = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
+                        if not t_norm:
                             if buff:
                                 break
                             k += 1
                             continue
-                        if re.match(r"^(Section|Part|Chapter|Titre|Sezione|Kapitel)\b", t, re.I):
+                        if t_norm[:1].islower() or STOP_START.match(t_norm):
                             break
-                        if re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", t):
+                        if re.match(r"^(Section|Part|Chapter|Titre|Sezione|Kapitel)\b", t_norm, re.I):
                             break
-                        if t[:1] in {",", "—", "–", "-", ";", "."}:
+                        if re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", t_norm):
                             break
-                        buff.append(t)
+                        if t_norm[:1] in {",", "—", "–", "-", ";", "."}:
+                            break
+                        buff.append(t_norm)
                         k += 1
-                        if t.endswith('.'):
+                        if t_norm.endswith('.'):
                             break
                     annex_title = ' '.join(buff).strip()
                     consumed = (k - 1) if annex_title else 0
