@@ -37,6 +37,24 @@ UA = (
 )
 
 
+def _stable_oj_url(celex: str) -> str:
+    """Return a stable Official Journal EN URL for the given CELEX id."""
+    kind_map = {"R": "reg", "L": "dir", "D": "dec"}
+    # CELEX консолидированных текстов: 0 + YEAR + TYPE + NUMBER + '-' + YYYYMMDD
+    m_cons = re.match(r"^0(\d{4})([A-Z])(\d+)-\d{8}$", celex, re.I)
+    if m_cons:
+        year, kind, num = m_cons.group(1), m_cons.group(2).upper(), int(m_cons.group(3))
+        seg = kind_map.get(kind, kind.lower())
+        return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+    # Базовые акты, например 32024R1689
+    m_base = re.match(r"^3(\d{4})([A-Z])(\d+)$", celex, re.I)
+    if m_base:
+        year, kind, num = m_base.group(1), m_base.group(2).upper(), int(m_base.group(3))
+        seg = kind_map.get(kind, kind.lower())
+        return f"https://eur-lex.europa.eu/eli/{seg}/{year}/{num}/oj/eng"
+    return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
+
+
 class RegulationMonitorV2:
     """Production-grade монитор регуляторов с мультисорс-поддержкой."""
     
@@ -238,26 +256,6 @@ class RegulationMonitorV2:
             eli_data = await self._execute_sparql_query(session, endpoint, celex_id)
             logger.info(f"SPARQL data received: {eli_data is not None}")
 
-            # Стабильная ссылка на OJ-страницу через ELI:
-            # /eli/reg/{YEAR}/{NUMBER}/oj/eng для регламентов (R).
-            # Если CELEX не распознаётся — откат на стандартный CELEX-страничку.
-            def _stable_oj_url(celex: str) -> str:
-                # CELEX консолидированных текстов: 0 + YEAR + TYPE + NUMBER + '-' + YYYYMMDD
-                # Пример: 02024R1689-20241017 → базовый CELEX: 32024R1689
-                m_cons = re.match(r"^0(\d{4})([A-Z])(\d+)-\d{8}$", celex, re.I)
-                kind_map = {"R": "reg", "L": "dir", "D": "dec"}
-                if m_cons:
-                    year, kind, num = m_cons.group(1), m_cons.group(2).upper(), int(m_cons.group(3))
-                    seg = kind_map.get(kind, kind.lower())
-                    return f"https://data.europa.eu/eli/{seg}/{year}/{num}/oj"
-                # Базовые акты, например 32024R1689
-                m_base = re.match(r"^3(\d{4})([A-Z])(\d+)$", celex, re.I)
-                if m_base:
-                    year, kind, num = m_base.group(1), m_base.group(2).upper(), int(m_base.group(3))
-                    seg = kind_map.get(kind, kind.lower())
-                    return f"https://data.europa.eu/eli/{seg}/{year}/{num}/oj"
-                return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
-
             # Версию и дату берём из SPARQL/консолидации; если даты нет — парсим из суффикса CELEX (....-YYYYMMDD)
             meta_version = eli_data.get('version') if eli_data else None
             meta_date = (eli_data.get('date') if eli_data else None) or meta_date
@@ -444,11 +442,29 @@ class RegulationMonitorV2:
     ) -> Optional[Dict]:
         """Обработать HTML источник (fallback)."""
         try:
-            text = await self._fetch_html_text(session, source.url)
+            celex_id = self._extract_celex_id(source.url)
+            url = source.url
+            if celex_id and re.match(r"^3\d{4}[A-Z]\d+$", celex_id):
+                try:
+                    url = _stable_oj_url(celex_id)
+                    async with session.get(url) as resp:
+                        resp.raise_for_status()
+                        text = await resp.text()
+                except Exception:
+                    url = source.url
+                    try:
+                        text = await self._fetch_html_text(session, url)
+                    except Exception:
+                        text = ""
+            else:
+                try:
+                    text = await self._fetch_html_text(session, url)
+                except Exception:
+                    text = ""
             clean = self._sanitize_text(text)
             content_hash = hashlib.sha256(clean.encode()).hexdigest()
             has_changed = self._has_content_changed(source.id, content_hash)
-            celex_id = self._extract_celex_id(source.url) or "UNKNOWN"
+            celex_id = celex_id or "UNKNOWN"
             name = None
 
             work_date = None
@@ -466,17 +482,31 @@ class RegulationMonitorV2:
                 if existing.name:
                     name = existing.name
             else:
-                try:
-                    from .eli_client import fetch_latest_eli
+                existing_any = (
+                    self.db.query(Regulation)
+                    .filter_by(celex_id=celex_id)
+                    .order_by(Regulation.id.desc())
+                    .first()
+                )
+                if existing_any:
+                    if existing_any.work_date:
+                        work_date = existing_any.work_date.strftime("%Y-%m-%d")
+                    if existing_any.expression_version:
+                        expression_version = existing_any.expression_version
+                    if existing_any.name:
+                        name = existing_any.name
+                if not work_date or not name:
+                    try:
+                        from .eli_client import fetch_latest_eli
 
-                    meta = await fetch_latest_eli(session, celex_id)
-                    if meta:
-                        work_date = meta.get("date")
-                        expression_version = meta.get("version")
-                        if meta.get("title"):
-                            name = meta.get("title")
-                except Exception:
-                    pass
+                        meta = await fetch_latest_eli(session, celex_id)
+                        if meta:
+                            work_date = work_date or meta.get("date")
+                            expression_version = expression_version or meta.get("version")
+                            if meta.get("title") and not name:
+                                name = meta.get("title")
+                    except Exception:
+                        pass
 
             if work_date and "T" in work_date:
                 work_date = work_date.split("T", 1)[0]
@@ -495,7 +525,7 @@ class RegulationMonitorV2:
                 name=name,
                 version=version_str,
                 text=clean,
-                url=source.url,
+                url=url,
                 celex_id=celex_id,
                 expression_version=expression_version,
                 work_date=work_date,
