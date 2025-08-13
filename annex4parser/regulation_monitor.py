@@ -43,7 +43,20 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Короткие стоп-слова/префиксы — строка точно не title
 STOP_START = re.compile(r"^(and|or|for|where|when|which|that)\b", re.I)
+# Признак «это уже текст, а не заголовок» (типичные глаголы в Annex)
+TITLE_VERB = re.compile(r"\b(shall|must|may|should|contain|contains|include|includes|apply|applies|provide|provided)\b", re.I)
+# Мусорные символы, встречающиеся на EUR-Lex (Article 1: «Subject matter`»)
+BAD_TICKS = re.compile(r"[`´]")
+
+
+def _is_title_like(s: str) -> bool:
+    return bool(s) and not STOP_START.match(s) and not s[:1].islower()
+
+
+def _clean_title_piece(s: str) -> str:
+    return BAD_TICKS.sub("", s).strip()
 
 
 def canonicalize(code: str) -> str:
@@ -79,13 +92,15 @@ def _sanitize_content(text: str) -> str:
         ln = raw_lines[i]
         s = unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip()
 
-        # Удаляем дублирующие французские заголовки типа "ANNEXE IV"
+        # Удаляем мусор, мешающий заголовкам на двуязычных страницах EUR-Lex
+        # 1) дубли «ANNEXE IV», «ANNEXE XI», и т.п.
         s = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", s).strip()
-
-        # Пропускаем строки, состоящие только из ISO-кодов языка (EN, FR, ...)
+        # 2) одиночные ISO-коды языка в колонке (EN, FR, PL …)
         if re.match(r"^[A-Z]{2,3}$", s):
             i += 1
             continue
+        # 3) лишние бэктики/острые апострофы, как в «Subject matter`»
+        s = re.sub(r"[`´]", "", s).strip()
 
         # Определяем ближайшую непустую строку впереди
         j = i + 1
@@ -175,6 +190,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                     code = f"{code[:-1]}{code[-1].lower()}"
                 rest = m.group(2) or ""
                 title = re.sub(r"^\s*[\u2013\u2014\-]\s*", "", rest).strip()
+                title = _clean_title_piece(title)
                 title_line_idx = 0
                 if not title:
                     marker_seen = False
@@ -190,9 +206,8 @@ def parse_rules(raw_text: str) -> List[dict]:
                         if marker_seen:
                             break
                         cand_norm = re.sub(r"^[\u2013\u2014:\-]\s*", "", cand).strip()
-                        if not cand_norm:
-                            continue
-                        if cand_norm[:1].islower() or STOP_START.match(cand_norm):
+                        cand_norm = _clean_title_piece(cand_norm)
+                        if not _is_title_like(cand_norm):
                             continue
                         title = cand_norm
                         title_line_idx = k
@@ -219,36 +234,34 @@ def parse_rules(raw_text: str) -> List[dict]:
                 consumed = 0
 
                 if annex_title:
-                    # Удаляем французский дубль и правую часть двуязычных заголовков
-                    annex_title = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", annex_title).strip()
-                    annex_title = re.split(r"\s{2,}", annex_title)[0].strip()
-                if annex_title and (annex_title[:1].islower() or STOP_START.match(annex_title)):
+                    # Убираем французский дубль и мусорные тики
+                    t = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", annex_title).strip()
+                    t = _clean_title_piece(t)
+                    annex_title = re.split(r"\s{2,}", t)[0].strip()
+                if annex_title and (not _is_title_like(annex_title) or TITLE_VERB.search(annex_title)):
                     annex_title = ""
 
                 if not annex_title:
-                    # Берём первую осмысленную строку после ANNEX
+                    # Берём ТОЛЬКО первую «title-like» строку после заголовка
                     k = 1
-                    buff: List[str] = []
+                    first_title = ""
                     while k < len(lines):
                         t_norm = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
                         if not t_norm:
-                            if buff:
-                                break
                             k += 1
                             continue
-                        if t_norm[:1].islower() or STOP_START.match(t_norm):
-                            break
-                        if re.match(r"^(Section|Part|Chapter|Titre|Sezione|Kapitel)\b", t_norm, re.I):
-                            break
-                        if re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", t_norm):
-                            break
-                        if t_norm[:1] in {",", "—", "–", "-", ";", "."}:
-                            break
-                        buff.append(t_norm)
+                        # Стоп по служебным подсекциям/маркерам/знакам
+                        if re.match(r"^(Section|Part|Chapter|Titre|Sezione|Kapitel)\b", t_norm, re.I): break
+                        if re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", t_norm): break
+                        if t_norm[:1] in {",", "—", "–", "-", ";", "."}: break
+                        t_norm = _clean_title_piece(t_norm)
+                        # Если строка выглядит как обычное предложение с глаголом — это уже контент, не title
+                        if TITLE_VERB.search(t_norm): break
+                        if not _is_title_like(t_norm): break
+                        first_title = t_norm
                         k += 1
-                        if t_norm.endswith('.'):
-                            break
-                    annex_title = ' '.join(buff).strip()
+                        break
+                    annex_title = first_title
                     consumed = (k - 1) if annex_title else 0
 
                 raw_body = "\n".join(lines[1 + consumed:]).strip()
