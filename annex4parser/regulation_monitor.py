@@ -422,7 +422,8 @@ class RegulationMonitor:
         )
         if same_hash_reg:
             updated = False
-            if same_hash_reg.version != version:
+            # Не затираем что-то осмысленное на None
+            if version is not None and same_hash_reg.version != version:
                 same_hash_reg.version = version
                 updated = True
             if same_hash_reg.effective_date is None:
@@ -431,7 +432,7 @@ class RegulationMonitor:
             if updated:
                 rules_q = self.db.query(Rule).filter_by(regulation_id=same_hash_reg.id)
                 for r in rules_q:
-                    if r.version != version:
+                    if version is not None and r.version != version:
                         r.version = version
                     if same_hash_reg.effective_date and r.effective_date is None:
                         r.effective_date = same_hash_reg.effective_date
