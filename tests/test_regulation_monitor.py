@@ -72,6 +72,18 @@ def test_order_index_zero_padding():
     assert r1a["order_index"] == "a"
     assert r1c["order_index"] == "c"
 
+
+def test_article_does_not_split_on_year_like_numbers():
+    text = (
+        "Article 39 Title\n"
+        "1. This is a normal point.\n"
+        "2025. Given the rapid pace...\n"
+    )
+    parsed = parse_rules(text)
+    codes = {r["section_code"] for r in parsed}
+    assert "Article39.1" in codes
+    assert "Article39.2025" not in codes
+
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
 

@@ -71,6 +71,21 @@ class TestAnnexParsing:
         assert section_1['parent_section_code'] == 'AnnexIV'
         assert section_2['parent_section_code'] == 'AnnexIV'
 
+    def test_annex_does_not_split_on_year_like_numbers(self):
+        """Парсер не должен считать строки с годом подпунктами."""
+        text = """
+        ANNEX IV Technical documentation
+
+        1. First point
+        2025. Given the rapid pace...
+        """
+
+        rules = parse_rules(text)
+
+        codes = {r['section_code'] for r in rules if r['section_code'].startswith('Annex')}
+        assert 'AnnexIV.1' in codes
+        assert 'AnnexIV.2025' not in codes
+
     def test_parse_annex_with_lettered_subsections(self):
         """Тест парсинга Annex с буквенными подпунктами."""
         text = """
