@@ -230,7 +230,8 @@ def parse_rules(raw_text: str) -> List[dict]:
 
 def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
     """Парсит пункты и подпункты внутри Article."""
-    top_parts = re.split(r"(?m)^\s*(\d+)\.\s+", body)
+    # Разрешаем только подпункты 1..999, исключаем года/большие числа
+    top_parts = re.split(r"(?m)^\s*([1-9]\d{0,2})\.\s+", body)
     if len(top_parts) >= 3:
         for i in range(1, len(top_parts), 2):
             num = top_parts[i]
@@ -267,7 +268,8 @@ def _parse_article_subsections(rules: List[dict], parent_code: str, body: str):
 def _parse_annex_subsections(rules: List[dict], parent_code: str, body: str):
     """Парсит подразделы внутри Annex."""
     # Разрежем по верхнему уровню "N." (в начале строки)
-    top_parts = re.split(r"(?m)^\s*(\d+)\.\s+", body)
+    # Разрешаем только подпункты 1..999, исключаем года/большие числа
+    top_parts = re.split(r"(?m)^\s*([1-9]\d{0,2})\.\s+", body)
     # split даёт: ["intro", "1", "text1", "2", "text2", ...]
     if len(top_parts) >= 3:
         for i in range(1, len(top_parts), 2):
