@@ -191,8 +191,6 @@ def parse_rules(raw_text: str) -> List[dict]:
                         title_line_idx = k
                         break
                 rule_title = (title or None)
-                if rule_title:
-                    rule_title = rule_title[:120]
                 raw = "\n".join(lines[title_line_idx + 1:]).strip()
                 content = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw))
                 parent_code = canonicalize(f"Article{code}")
@@ -248,7 +246,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                 parent_code = canonicalize(f"Annex{roman}")
                 rules.append({
                     "section_code": parent_code,
-                    "title": (annex_title[:120] or None),
+                    "title": (annex_title or None),
                     "content": body,
                 })
 
