@@ -43,16 +43,27 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Короткие стоп-слова/префиксы — строка точно не title
+# Короткие стоп-слова — строка точно не title
 STOP_START = re.compile(r"^(and|or|for|where|when|which|that)\b", re.I)
-# Признак «это уже текст, а не заголовок» (типичные глаголы в Annex)
-TITLE_VERB = re.compile(r"\b(shall|must|may|should|contain|contains|include|includes|apply|applies|provide|provided)\b", re.I)
-# Мусорные символы, встречающиеся на EUR-Lex (Article 1: «Subject matter`»)
+# «это уже текст, а не заголовок» — типичные глаголы в правовых пунктах
+TITLE_VERB = re.compile(
+    r"\b(shall|must|may|should|contain|contains|include|includes|apply|applies|"
+    r"provide|provided|ensure|indicate|keep|draw up|affix|comply|take|inform|act|"
+    r"establish|implement)\b",
+    re.I,
+)
+# мусорные «бэктики» на EUR-Lex (например, Subject matter`)
 BAD_TICKS = re.compile(r"[`´]")
 
 
 def _is_title_like(s: str) -> bool:
-    return bool(s) and not STOP_START.match(s) and not s[:1].islower()
+    return (
+        bool(s)
+        and not s.startswith(("(", "["))
+        and not STOP_START.match(s)
+        and not s[:1].islower()
+        and not TITLE_VERB.search(s)
+    )
 
 
 def _clean_title_piece(s: str) -> str:
@@ -162,10 +173,26 @@ def parse_rules(raw_text: str) -> List[dict]:
 
     # ---- Сначала найдем все границы Articles и Annexes ----
     boundaries = []
-    
+
+    # Вспомогательная проверка: «это действительно шапка статьи, а не перенос кросс-ссылки»
+    def _article_header_is_valid(t: str, start: int, end: int) -> bool:
+        block = t[end : end + 800]
+        lines = [ln.strip() for ln in block.splitlines()[:8] if ln.strip()]
+        # title-like строка в ближайших 3 — ок
+        for ln in lines[:3]:
+            ln = re.sub(r"^[\u2013\u2014\-–—:;,\.]+\s*", "", ln)
+            if _is_title_like(ln):
+                return True
+        # либо встретили пронумерованный подпункт "1. " в первых строках
+        for ln in lines[:8]:
+            if re.match(r"^\d+\.\s+", ln):
+                return True
+        return False
+
     # Находим все Articles
-    for match in re.finditer(r"(?im)^(\s*Article\s+\d+[a-zA-Z]?\b)", text):
-        boundaries.append(("Article", match.start(), match.group(1).strip()))
+    for m in re.finditer(r"(?m)^(\s*Article\s+\d+[a-zA-Z]?)\b", text):
+        if _article_header_is_valid(text, m.start(), m.end()):
+            boundaries.append(("Article", m.start(), m.group(1).strip()))
     
     # Находим все Annexes (case insensitive)
     for match in re.finditer(r"(?i)(?m)^(\s*ANNEX\s+[IVXLC]+\b)", text):
@@ -189,7 +216,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                 if code[-1].isalpha():
                     code = f"{code[:-1]}{code[-1].lower()}"
                 rest = m.group(2) or ""
-                title = re.sub(r"^\s*[\u2013\u2014\-]\s*", "", rest).strip()
+                title = re.sub(r"^\s*[\u2013\u2014\-:;,\.]\s*", "", rest).strip()
                 title = _clean_title_piece(title)
                 title_line_idx = 0
                 if not title:
@@ -205,7 +232,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                             continue
                         if marker_seen:
                             break
-                        cand_norm = re.sub(r"^[\u2013\u2014:\-]\s*", "", cand).strip()
+                        cand_norm = re.sub(r"^[\u2013\u2014\-:;,\.]\s*", "", cand).strip()
                         cand_norm = _clean_title_piece(cand_norm)
                         if not _is_title_like(cand_norm):
                             continue
@@ -234,9 +261,10 @@ def parse_rules(raw_text: str) -> List[dict]:
                 consumed = 0
 
                 if annex_title:
-                    # Убираем французский дубль и мусорные тики
+                    # Убираем французский дубль, бэктики и левую пунктуацию
                     t = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", annex_title).strip()
                     t = _clean_title_piece(t)
+                    t = re.sub(r"^[\u2013\u2014\-:;,\.]\s*", "", t)
                     annex_title = re.split(r"\s{2,}", t)[0].strip()
                 if annex_title and (not _is_title_like(annex_title) or TITLE_VERB.search(annex_title)):
                     annex_title = ""
@@ -251,13 +279,18 @@ def parse_rules(raw_text: str) -> List[dict]:
                             k += 1
                             continue
                         # Стоп по служебным подсекциям/маркерам/знакам
-                        if re.match(r"^(Section|Part|Chapter|Titre|Sezione|Kapitel)\b", t_norm, re.I): break
-                        if re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", t_norm): break
-                        if t_norm[:1] in {",", "—", "–", "-", ";", "."}: break
-                        t_norm = _clean_title_piece(t_norm)
+                        if re.match(r"^(Section|Part|Chapter|Titre|Sezione|Kapitel)\b", t_norm, re.I):
+                            break
+                        if re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", t_norm):
+                            break
+                        if t_norm[:1] in {",", "—", "–", "-", ";", "."}:
+                            break
+                        t_norm = _clean_title_piece(re.sub(r"^[\u2013\u2014\-:;,\.]\s*", "", t_norm))
                         # Если строка выглядит как обычное предложение с глаголом — это уже контент, не title
-                        if TITLE_VERB.search(t_norm): break
-                        if not _is_title_like(t_norm): break
+                        if TITLE_VERB.search(t_norm):
+                            break
+                        if not _is_title_like(t_norm):
+                            break
                         first_title = t_norm
                         k += 1
                         break
