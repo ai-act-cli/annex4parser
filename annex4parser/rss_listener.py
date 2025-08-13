@@ -138,6 +138,8 @@ class RSSMonitor:
 # Примеры популярных регуляторных RSS-фидов
 REGULATORY_RSS_FEEDS = {
     "ep_plenary": "https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml",
+    # Предопределённый фид EUR-Lex "All Parliament and Council legislation"
+    "eurlex_latest_legislation": "https://eur-lex.europa.eu/EN/display-feed.rss?rssId=162",
     "ec_press": "https://ec.europa.eu/commission/presscorner/rss/en.xml",
     "eiopa": "https://www.eiopa.europa.eu/rss/en.xml",
 }
@@ -148,9 +150,9 @@ if __name__ == "__main__":
     async def test_rss():
         # Тестируем RSS-монитор
         monitor = RSSMonitor()
-        
-        # Проверяем EUR-Lex RSS
-        updates = await monitor.check_for_updates(REGULATORY_RSS_FEEDS["ep_plenary"])
+
+        # Проверяем EUR-Lex RSS (предопределённый фид)
+        updates = await monitor.check_for_updates(REGULATORY_RSS_FEEDS["eurlex_latest_legislation"])
         
         for link, content_hash, title in updates:
             print(f"New: {title}")

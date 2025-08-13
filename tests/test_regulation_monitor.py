@@ -113,3 +113,28 @@ def test_update_regulation_creates_alerts(monkeypatch):
     assert doc_alert.document_id == doc.id
     # document should be marked outdated
     assert session.get(Document, doc.id).compliance_status == 'outdated'
+
+
+def test_update_regulation_same_hash_reuses_record(monkeypatch):
+    session = setup_db()
+    text = "Article 1 - Scope\nThis Regulation applies."
+
+    # initial ingest
+    monkeypatch.setattr(
+        'annex4parser.regulation_monitor.fetch_regulation_text', lambda url: text
+    )
+    reg1 = update_regulation(session, 'Test', '20240613', 'http://example.com', 'CELEX')
+    rule1 = session.query(Rule).filter_by(regulation_id=reg1.id).first()
+    first_effective = rule1.effective_date
+
+    # same content with new version should reuse existing record
+    monkeypatch.setattr(
+        'annex4parser.regulation_monitor.fetch_regulation_text', lambda url: text
+    )
+    reg2 = update_regulation(session, 'Test', '20250101', 'http://example.com', 'CELEX')
+
+    assert reg2.id == reg1.id
+    rule2 = session.query(Rule).filter_by(regulation_id=reg1.id).first()
+    assert rule2.version == '20250101'
+    assert rule2.effective_date == first_effective
+    assert session.query(Regulation).filter_by(celex_id='CELEX').count() == 1

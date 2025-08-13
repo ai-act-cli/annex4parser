@@ -7,7 +7,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
 from aioresponses import aioresponses
 from annex4parser.regulation_monitor_v2 import RegulationMonitorV2
-from annex4parser.models import Source, RegulationSourceLog
+from annex4parser.models import Source, RegulationSourceLog, Rule, Regulation
 from tests.helpers import (
     create_test_source, create_test_log_entry, mock_eli_response,
     mock_rss_feed, mock_html_content, calculate_content_hash,
@@ -163,6 +163,53 @@ class TestRegulationMonitorV2:
                 assert len(logs) >= 0  # Логи могут быть созданы даже при ошибках
 
     @pytest.mark.asyncio
+    async def test_process_html_source_normalizes_work_date(self, test_db, test_config_path):
+        """HTML источник использует work_date без времени для версии"""
+        url = "https://example.com/reg?uri=CELEX:32024R9999"
+        source = create_test_source("norm_html", "html", url)
+        test_db.add(source)
+        test_db.commit()
+
+        monitor = RegulationMonitorV2(test_db, config_path=test_config_path)
+
+        text = "Test Regulation\nArticle 1 - Scope\nThis Regulation applies."
+        monitor._ingest_regulation_text(
+            name="Test Regulation",
+            version="20240613",
+            text=text,
+            url=url,
+            celex_id="32024R9999",
+            work_date="2024-06-13",
+        )
+
+        with aioresponses() as m:
+            setup_aiohttp_mocks(
+                m,
+                url,
+                content=mock_html_content(
+                    "Test Regulation",
+                    "Article 1 - Scope\nThis Regulation applies.",
+                ),
+            )
+            captured = {}
+            orig = monitor._ingest_regulation_text
+
+            def wrapper(*args, **kwargs):
+                captured["work_date"] = kwargs.get("work_date")
+                return orig(*args, **kwargs)
+
+            with patch.object(monitor, "_ingest_regulation_text", side_effect=wrapper):
+                async with aiohttp.ClientSession() as session:
+                    await monitor._process_html_source(source, session)
+
+        assert captured["work_date"] == "2024-06-13"
+        assert "T" not in captured["work_date"]
+
+        reg = test_db.query(Regulation).filter_by(celex_id="32024R9999").one()
+        assert reg.version == "20240613"
+        assert len(reg.version) == 8
+
+    @pytest.mark.asyncio
     async def test_extract_celex_id(self, test_db, test_config_path):
         """Тест извлечения CELEX ID"""
         monitor = RegulationMonitorV2(test_db, config_path=test_config_path)
@@ -255,6 +302,39 @@ class TestRegulationMonitorV2:
         assert result is not None
         assert result.name == "Test Regulation"
         assert result.version == "1.0"
+
+    @pytest.mark.asyncio
+    async def test_same_hash_syncs_rule_fields(self, test_db, test_config_path):
+        """Повторный импорт с тем же контентом синхронизирует version/effective_date правил."""
+        monitor = RegulationMonitorV2(test_db, config_path=test_config_path)
+
+        text = """Article 1 - Scope\nThis Regulation applies."""
+
+        reg1 = monitor._ingest_regulation_text(
+            name="Test Regulation",
+            version="20250101",
+            text=text,
+            url="https://example.com/reg",
+            celex_id="999999",
+        )
+        rule = test_db.query(Rule).filter_by(regulation_id=reg1.id).first()
+        assert rule.version == "20250101"
+        assert rule.effective_date is None
+
+        reg2 = monitor._ingest_regulation_text(
+            name="Test Regulation",
+            version="20240613",
+            text=text,
+            url="https://example.com/reg",
+            celex_id="999999",
+            work_date="2024-06-13",
+        )
+
+        assert reg2.id == reg1.id
+        assert reg2.version == "20240613"
+        rule2 = test_db.query(Rule).filter_by(regulation_id=reg2.id).first()
+        assert rule2.version == "20240613"
+        assert rule2.effective_date and rule2.effective_date.date() == datetime(2024, 6, 13).date()
 
     @pytest.mark.asyncio
     async def test_create_rss_alert(self, test_db, test_config_path):
