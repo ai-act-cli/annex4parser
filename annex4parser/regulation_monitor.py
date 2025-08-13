@@ -77,6 +77,14 @@ def _sanitize_content(text: str) -> str:
         ln = raw_lines[i]
         s = unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip()
 
+        # Удаляем дублирующие французские заголовки типа "ANNEXE IV"
+        s = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", s).strip()
+
+        # Пропускаем строки, состоящие только из ISO-кодов языка (EN, FR, ...)
+        if re.match(r"^[A-Z]{2,3}$", s):
+            i += 1
+            continue
+
         # Определяем ближайшую непустую строку впереди
         j = i + 1
         next_non_empty = ""
@@ -199,26 +207,48 @@ def parse_rules(raw_text: str) -> List[dict]:
             # Парсим Annex
             lines = block_text.splitlines()
             header_line = lines[0]
-            m = re.match(r"(?i)\s*ANNEX\s+([IVXLC]+)\b(.*)", header_line)
+            m = re.match(r"(?i)^\s*ANNEX\s+([IVXLC]+)\b(?:\s+(.*))?$", header_line)
             if m:
                 roman = m.group(1).upper()
-                annex_title = re.sub(r"^[\u2013\u2014\-:\s]*", "", (m.group(2) or "").strip())
+                annex_title = (m.group(2) or "").strip()
                 consumed = 0
+
+                if annex_title:
+                    # Удаляем французский дубль и правую часть двуязычных заголовков
+                    annex_title = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", annex_title).strip()
+                    annex_title = re.split(r"\s{2,}", annex_title)[0].strip()
+
                 if not annex_title:
+                    # Берём первую осмысленную строку после ANNEX
                     k = 1
-                    while k < len(lines) and not lines[k].strip():
+                    buff: List[str] = []
+                    while k < len(lines):
+                        t = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
+                        if not t:
+                            if buff:
+                                break
+                            k += 1
+                            continue
+                        if re.match(r"^(Section|Part|Chapter|Titre|Sezione|Kapitel)\b", t, re.I):
+                            break
+                        if re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", t):
+                            break
+                        if t[:1] in {",", "—", "–", "-", ";", "."}:
+                            break
+                        buff.append(t)
                         k += 1
-                    title_line = lines[k].strip() if k < len(lines) else None
-                    if title_line and not re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", title_line):
-                        annex_title = re.sub(r"^[\u2013\u2014:\-\s]*", "", title_line)[:120]
-                        consumed = k
+                        if t.endswith('.'):
+                            break
+                    annex_title = ' '.join(buff).strip()
+                    consumed = (k - 1) if annex_title else 0
+
                 raw_body = "\n".join(lines[1 + consumed:]).strip()
                 body = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw_body))
 
                 parent_code = canonicalize(f"Annex{roman}")
                 rules.append({
                     "section_code": parent_code,
-                    "title": (annex_title[:120] if annex_title else None),
+                    "title": (annex_title[:120] or None),
                     "content": body,
                 })
 

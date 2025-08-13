@@ -38,6 +38,33 @@ class TestAnnexParsing:
         assert root['title'] == 'Technical documentation'
         assert 'First point' in root['content']
 
+    def test_parse_annex_title_bilingual_header(self):
+        """Парсер удаляет французский дубль и вторую языковую часть."""
+        text = """
+        ANNEX XI ANNEXE XI   Technical documentation referred to in Article 11(1)   Documentation technique
+
+        1. Content
+        """
+
+        rules = parse_rules(text)
+        root = next(r for r in rules if r['section_code'] == 'AnnexXI')
+        assert root['title'] == 'Technical documentation referred to in Article 11(1)'
+
+    def test_annex_title_excludes_subheadings(self):
+        """Подзаголовки после основной строки не попадают в title."""
+        text = """
+        ANNEX XI
+        Technical documentation referred to in Article 53(1), point (a) — technical documentation for providers of general-purpose AI models.
+        Transparency information referred to in Article 53(1), point (b) — technical documentation for providers of general-purpose AI models
+
+        1. Point one
+        """
+
+        rules = parse_rules(text)
+        root = next(r for r in rules if r['section_code'] == 'AnnexXI')
+        assert root['title'].startswith('Technical documentation referred to in Article 53(1)')
+        assert 'Transparency information referred to in Article 53(1)' in root['content']
+
     def test_parse_annex_with_numbered_sections(self):
         """Тест парсинга Annex с пронумерованными подразделами."""
         text = """
