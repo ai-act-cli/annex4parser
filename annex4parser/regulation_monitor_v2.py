@@ -477,20 +477,25 @@ class RegulationMonitorV2:
             if work_date and "T" in work_date:
                 work_date = work_date.split("T", 1)[0]
 
+            # Версия только из реальных метаданных
+            if expression_version:
+                version_str = expression_version
+            elif work_date:
+                version_str = work_date.replace("-", "")
+            else:
+                version_str = None
+
+            regulation = self._ingest_regulation_text(
+                name=name,
+                version=version_str,
+                text=clean,
+                url=source.url,
+                celex_id=celex_id,
+                expression_version=expression_version,
+                work_date=work_date,
+            )
+
             if has_changed:
-                version_str = (
-                    expression_version
-                    or (work_date or datetime.utcnow().strftime("%Y-%m-%d")).replace("-", "")
-                )
-                regulation = self._ingest_regulation_text(
-                    name=name,
-                    version=version_str,
-                    text=clean,
-                    url=source.url,
-                    celex_id=celex_id,
-                    expression_version=expression_version,
-                    work_date=work_date,
-                )
                 logger.info(f"Updated regulation from HTML source {source.id}")
             self._log_source_operation(
                 source.id, "success", content_hash, len(clean.encode()), None, "html"
@@ -773,7 +778,7 @@ class RegulationMonitorV2:
         )
         if same_hash_reg:
             updated = False
-            if same_hash_reg.version != version:
+            if version is not None and same_hash_reg.version != version:
                 same_hash_reg.version = version
                 updated = True
             if expression_version and not same_hash_reg.expression_version:
@@ -784,7 +789,7 @@ class RegulationMonitorV2:
                 same_hash_reg.effective_date = work_date_dt
                 updated = True
             if updated:
-                if version:
+                if version is not None:
                     rules_q = self.db.query(Rule).filter_by(regulation_id=same_hash_reg.id)
                     for r in rules_q:
                         if r.version != version:

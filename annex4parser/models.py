@@ -22,6 +22,7 @@ from sqlalchemy import (
     JSON,
     UniqueConstraint,
     Index,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -41,11 +42,18 @@ class Regulation(Base):
     __table_args__ = (
         UniqueConstraint("celex_id", "version", name="uq_regulation_celex_version"),
         Index("ix_regulations_celex_hash", "celex_id", "content_hash"),
+        Index(
+            "ux_regulations_celex_null_version",
+            "celex_id",
+            unique=True,
+            postgresql_where=text("version IS NULL"),
+            sqlite_where=text("version IS NULL"),
+        ),
     )
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     name = Column(Text, nullable=False)
     celex_id = Column(String(20), nullable=False)
-    version = Column(String(50), nullable=False)
+    version = Column(String(50), nullable=True)
     expression_version = Column(String(50), nullable=True)
     work_date = Column(DateTime, nullable=True)
     effective_date = Column(DateTime, nullable=True)
