@@ -450,19 +450,52 @@ class RegulationMonitorV2:
             has_changed = self._has_content_changed(source.id, content_hash)
             celex_id = self._extract_celex_id(source.url) or "UNKNOWN"
             name = f"Regulation {celex_id}"
+
+            work_date = None
+            expression_version = None
+            existing = (
+                self.db.query(Regulation)
+                .filter_by(celex_id=celex_id, content_hash=content_hash)
+                .first()
+            )
+            if existing:
+                if existing.work_date:
+                    work_date = existing.work_date.strftime("%Y-%m-%d")
+                if existing.expression_version:
+                    expression_version = existing.expression_version
+            else:
+                try:
+                    from .eli_client import fetch_latest_eli
+
+                    meta = await fetch_latest_eli(session, celex_id)
+                    if meta:
+                        work_date = meta.get("date")
+                        expression_version = meta.get("version")
+                except Exception:
+                    pass
+
+            if work_date and "T" in work_date:
+                work_date = work_date.split("T", 1)[0]
+
             if has_changed:
+                version_str = (
+                    expression_version
+                    or (work_date or datetime.utcnow().strftime("%Y-%m-%d")).replace("-", "")
+                )
                 regulation = self._ingest_regulation_text(
                     name=name,
-                    version=datetime.utcnow().strftime("%Y%m%d%H%M"),
+                    version=version_str,
                     text=clean,
                     url=source.url,
-                    celex_id=celex_id
+                    celex_id=celex_id,
+                    expression_version=expression_version,
+                    work_date=work_date,
                 )
                 logger.info(f"Updated regulation from HTML source {source.id}")
             self._log_source_operation(
                 source.id, "success", content_hash, len(clean.encode()), None, "html"
             )
-            
+
             return {"type": "html", "source_id": source.id}
             
         except aiohttp.ClientResponseError as e:
@@ -507,10 +540,12 @@ class RegulationMonitorV2:
         query = f"""
         PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
         SELECT ?celex ?date WHERE {{
-          ?w cdm:resource_legal_id_celex ?celex .
+          ?work cdm:resource_legal_id_celex ?celex .
           FILTER(STRSTARTS(?celex, "{prefix}"))
-          OPTIONAL {{ ?w cdm:work_date_document ?date }}
-        }} ORDER BY DESC(?date) DESC(?celex) LIMIT 1
+          OPTIONAL {{ ?work cdm:work_date_document ?date }}
+        }}
+        ORDER BY DESC(?date) DESC(?celex)
+        LIMIT 1
         """
         params = {"query": query, "format": "application/sparql-results+json"}
         try:
@@ -737,89 +772,27 @@ class RegulationMonitorV2:
             .first()
         )
         if same_hash_reg:
-            if same_hash_reg.version == version:
-                return same_hash_reg
-            regulation = Regulation(
-                name=name,
-                celex_id=celex_id,
-                version=version,
-                expression_version=expression_version,
-                work_date=work_date_dt,
-                source_url=url,
-                effective_date=work_date_dt or same_hash_reg.effective_date,
-                last_updated=datetime.utcnow(),
-                status="active",
-                content_hash=content_hash,
-            )
-            self.db.add(regulation)
-            self.db.flush()
-
-            old_rules = (
-                self.db.query(Rule)
-                .filter_by(regulation_id=same_hash_reg.id)
-                .all()
-            )
-            for r in old_rules:
-                self.db.add(
-                    Rule(
-                        regulation_id=regulation.id,
-                        section_code=r.section_code,
-                        title=r.title,
-                        content=r.content,
-                        order_index=r.order_index,
-                        risk_level=r.risk_level,
-                        version=version,
-                        parent_rule_id=None,  # временно, перелинкуем ниже
-                        effective_date=work_date_dt or r.effective_date,
-                        last_modified=work_date_dt or r.last_modified,
-                        ingested_at=datetime.utcnow(),
-                    )
-                )
-            self.db.flush()
-            new_rules = (
-                self.db.query(Rule)
-                .filter_by(regulation_id=regulation.id)
-                .all()
-            )
-            by_code = {canonicalize(x.section_code): x for x in new_rules}
-            for x in new_rules:
-                code = canonicalize(x.section_code or "")
-                if "." in code:
-                    parent_code = code.rsplit(".", 1)[0]
-                    parent = by_code.get(parent_code)
-                    if parent:
-                        x.parent_rule_id = parent.id
-            # переносим связки документов на новые правила
-            old_rule_ids = [r.id for r in old_rules]
-            mappings = (
-                self.db.query(DocumentRuleMapping)
-                .filter(DocumentRuleMapping.rule_id.in_(old_rule_ids))
-                .all()
-            )
-            now = datetime.utcnow()
-            for m in mappings:
-                old_r = self.db.get(Rule, m.rule_id)
-                if not old_r:
-                    continue
-                new_r = by_code.get(canonicalize(old_r.section_code))
-                if not new_r:
-                    continue
-                exists = (
-                    self.db.query(DocumentRuleMapping)
-                    .filter_by(document_id=m.document_id, rule_id=new_r.id)
-                    .first()
-                )
-                if not exists:
-                    self.db.add(DocumentRuleMapping(
-                        document_id=m.document_id,
-                        rule_id=new_r.id,
-                        confidence_score=m.confidence_score,
-                        mapped_by="auto",
-                        mapped_at=now,
-                        last_verified=now,
-                    ))
-            self.db.commit()
-            return regulation
+            updated = False
+            if same_hash_reg.version != version:
+                same_hash_reg.version = version
+                updated = True
+            if expression_version and not same_hash_reg.expression_version:
+                same_hash_reg.expression_version = expression_version
+                updated = True
+            if work_date_dt and not same_hash_reg.work_date:
+                same_hash_reg.work_date = work_date_dt
+                same_hash_reg.effective_date = work_date_dt
+                updated = True
+            if updated:
+                if version:
+                    rules_q = self.db.query(Rule).filter_by(regulation_id=same_hash_reg.id)
+                    for r in rules_q:
+                        if r.version != version:
+                            r.version = version
+                        if work_date_dt and r.effective_date is None:
+                            r.effective_date = work_date_dt
+                self.db.commit()
+            return same_hash_reg
 
         prev_reg = (
             self.db.query(Regulation)

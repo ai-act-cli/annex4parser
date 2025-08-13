@@ -76,18 +76,27 @@ def _sanitize_content(text: str) -> str:
     while i < len(raw_lines):
         ln = raw_lines[i]
         s = unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip()
-        next_s = ""
-        if i + 1 < len(raw_lines):
-            nxt = unicodedata.normalize("NFKC", raw_lines[i + 1]).replace("\xa0", " ").strip()
-            next_s = nxt
-        # Skip standalone numeric or letter markers only when the next line is empty
+
+        # Определяем ближайшую непустую строку впереди
+        j = i + 1
+        next_non_empty = ""
+        while j < len(raw_lines):
+            nxt = unicodedata.normalize("NFKC", raw_lines[j]).replace("\xa0", " ").strip()
+            if nxt:
+                next_non_empty = nxt
+                break
+            j += 1
+
+        # Пропускаем одиночные маркеры только если после них нет никакого текста
         if re.match(r"^\(?\d+\)?$", s) or re.match(r"^\([a-zA-Z]\)$", s) or re.match(r"^\[\d+\]$", s):
-            if not next_s:
+            if not next_non_empty:
                 i += 1
                 continue
+
         if s in {";", "."}:
             i += 1
             continue
+
         lines.append(s)
         i += 1
     cleaned = "\n".join(lines)
@@ -196,15 +205,13 @@ def parse_rules(raw_text: str) -> List[dict]:
                 annex_title = re.sub(r"^[\u2013\u2014\-:\s]*", "", (m.group(2) or "").strip())
                 consumed = 0
                 if not annex_title:
-                    buff = []
-                    for ln in lines[1:7]:
-                        s = unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip()
-                        if not s or re.match(r"^\d+\.\s+", s):
-                            break
-                        buff.append(s)
-                    if buff:
-                        annex_title = " ".join(buff).strip()
-                        consumed = len(buff)
+                    k = 1
+                    while k < len(lines) and not lines[k].strip():
+                        k += 1
+                    title_line = lines[k].strip() if k < len(lines) else None
+                    if title_line and not re.match(r"^\d+\.\s+|\([a-zA-Z]\)\s+", title_line):
+                        annex_title = re.sub(r"^[\u2013\u2014:\-\s]*", "", title_line)[:120]
+                        consumed = k
                 raw_body = "\n".join(lines[1 + consumed:]).strip()
                 body = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw_body))
 
@@ -406,6 +413,30 @@ class RegulationMonitor:
         self.save_cached_text(url, raw_text)
         clean_text = _sanitize_content(raw_text)
         content_hash = hashlib.sha256(clean_text.encode("utf-8")).hexdigest()
+
+        same_hash_reg = (
+            self.db.query(Regulation)
+            .filter_by(celex_id=celex_id, content_hash=content_hash)
+            .order_by(Regulation.effective_date.desc())
+            .first()
+        )
+        if same_hash_reg:
+            updated = False
+            if same_hash_reg.version != version:
+                same_hash_reg.version = version
+                updated = True
+            if same_hash_reg.effective_date is None:
+                same_hash_reg.effective_date = datetime.utcnow()
+                updated = True
+            if updated:
+                rules_q = self.db.query(Rule).filter_by(regulation_id=same_hash_reg.id)
+                for r in rules_q:
+                    if r.version != version:
+                        r.version = version
+                    if same_hash_reg.effective_date and r.effective_date is None:
+                        r.effective_date = same_hash_reg.effective_date
+                self.db.commit()
+            return same_hash_reg
 
         # Retrieve the most recent previous version (if any)
         previous_reg = (

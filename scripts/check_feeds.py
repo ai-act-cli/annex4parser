@@ -2,11 +2,11 @@ import asyncio
 import aiohttp
 import feedparser
 
-from annex4parser.rss_listener import UA
+from annex4parser.rss_listener import UA, REGULATORY_RSS_FEEDS
 
 URLS = [
-    "https://eur-lex.europa.eu/EN/display-feed.rss?rssId=162",
-    "https://www.europarl.europa.eu/rss/doc/debates-plenary/en.xml",
+    REGULATORY_RSS_FEEDS["eurlex_latest_legislation"],
+    REGULATORY_RSS_FEEDS["ep_plenary"],
     # "https://ec.europa.eu/newsroom/clima/items/itemType/1041?format=rss",
 ]
 

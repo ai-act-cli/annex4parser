@@ -7,8 +7,13 @@ def test_sanitize_content_preserves_marker_with_text():
 
 
 def test_sanitize_content_drops_hanging_marker():
+    raw = "(a)\n\n"
+    assert _sanitize_content(raw) == ""
+
+
+def test_sanitize_content_preserves_marker_with_blank_line():
     raw = "(a)\n\nNext"
-    assert _sanitize_content(raw) == "Next"
+    assert _sanitize_content(raw).startswith("(a)")
 
 
 def test_parse_rules_with_separate_marker_line():

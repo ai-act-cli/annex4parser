@@ -24,6 +24,20 @@ class TestAnnexParsing:
         assert 'Technical documentation' in annex_rules[0]['title']
         assert 'parent_section_code' not in annex_rules[0]
 
+    def test_parse_annex_title_after_blank_line(self):
+        """Парсер должен извлекать заголовок, расположенный на новой строке."""
+        text = """
+        ANNEX IV
+
+        Technical documentation
+        1. First point
+        """
+
+        rules = parse_rules(text)
+        root = next(r for r in rules if r['section_code'] == 'AnnexIV')
+        assert root['title'] == 'Technical documentation'
+        assert 'First point' in root['content']
+
     def test_parse_annex_with_numbered_sections(self):
         """Тест парсинга Annex с пронумерованными подразделами."""
         text = """
