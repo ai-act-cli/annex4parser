@@ -20,6 +20,7 @@ import aiohttp
 from sqlalchemy.orm import Session
 from tenacity import retry, wait_exponential_jitter, stop_after_attempt
 import unicodedata
+from urllib.parse import quote
 
 from .models import (
     Regulation, Rule, DocumentRuleMapping, ComplianceAlert,
@@ -330,6 +331,7 @@ class RegulationMonitorV2:
             has_changed = self._has_content_changed(source.id, content_hash)
             logger.info(f"Content has changed: {has_changed}")
             name = eli_data.get('title') if eli_data else None
+            # Только нормальное имя: ELI title или безопасный дефолт
             name = name or f"Regulation {celex_id}"
             expr_version = meta_version
             date = meta_date
@@ -443,24 +445,17 @@ class RegulationMonitorV2:
         """Обработать HTML источник (fallback)."""
         try:
             celex_id = self._extract_celex_id(source.url)
-            url = source.url
-            if celex_id and re.match(r"^3\d{4}[A-Z]\d+$", celex_id):
-                try:
-                    url = _stable_oj_url(celex_id)
-                    async with session.get(url) as resp:
-                        resp.raise_for_status()
-                        text = await resp.text()
-                except Exception:
-                    url = source.url
-                    try:
-                        text = await self._fetch_html_text(session, url)
-                    except Exception:
-                        text = ""
-            else:
-                try:
-                    text = await self._fetch_html_text(session, url)
-                except Exception:
-                    text = ""
+            url = _stable_oj_url(celex_id) if celex_id else source.url
+            # ВАЖНО: всегда преобразуем HTML -> плоский текст
+            try:
+                text = await self._fetch_html_text(session, url)
+            except Exception:
+                url = quote(source.url, safe=":/?&=%")
+                async with session.get(url) as resp:
+                    resp.raise_for_status()
+                    html = await resp.text()
+                from bs4 import BeautifulSoup
+                text = BeautifulSoup(html, "html.parser").get_text(separator="\n")
             clean = self._sanitize_text(text)
             content_hash = hashlib.sha256(clean.encode()).hexdigest()
             has_changed = self._has_content_changed(source.id, content_hash)
@@ -479,34 +474,19 @@ class RegulationMonitorV2:
                     work_date = existing.work_date.strftime("%Y-%m-%d")
                 if existing.expression_version:
                     expression_version = existing.expression_version
-                if existing.name:
-                    name = existing.name
             else:
-                existing_any = (
-                    self.db.query(Regulation)
-                    .filter_by(celex_id=celex_id)
-                    .order_by(Regulation.id.desc())
-                    .first()
-                )
-                if existing_any:
-                    if existing_any.work_date:
-                        work_date = existing_any.work_date.strftime("%Y-%m-%d")
-                    if existing_any.expression_version:
-                        expression_version = existing_any.expression_version
-                    if existing_any.name:
-                        name = existing_any.name
-                if not work_date or not name:
-                    try:
-                        from .eli_client import fetch_latest_eli
+                try:
+                    from .eli_client import fetch_latest_eli
 
-                        meta = await fetch_latest_eli(session, celex_id)
-                        if meta:
-                            work_date = work_date or meta.get("date")
-                            expression_version = expression_version or meta.get("version")
-                            if meta.get("title") and not name:
-                                name = meta.get("title")
-                    except Exception:
-                        pass
+                    meta = await fetch_latest_eli(session, celex_id)
+                    if meta:
+                        work_date = work_date or meta.get("date")
+                        expression_version = expression_version or meta.get("version")
+                        eli_title = meta.get("title")
+                        if eli_title:
+                            name = eli_title
+                except Exception:
+                    pass
 
             if work_date and "T" in work_date:
                 work_date = work_date.split("T", 1)[0]
@@ -519,6 +499,7 @@ class RegulationMonitorV2:
             else:
                 version_str = None
 
+            # Только нормальное имя: ELI title или безопасный дефолт
             name = name or f"Regulation {celex_id}"
 
             regulation = self._ingest_regulation_text(
