@@ -307,8 +307,8 @@ class RegulationMonitorV2:
                 if not txt:
                     logger.warning("No text via HTML; skipping.")
                     return None
-                title = f"Regulation {celex_id}"
-                version = meta_version or (meta_date.replace("-", "") if meta_date else datetime.utcnow().strftime("%Y%m%d%H%M"))
+                title = (eli_data.get('title') if eli_data else None) or f"Regulation {celex_id}"
+                version = meta_version or (meta_date.replace("-", "") if meta_date else None)
                 clean = self._sanitize_text(txt)
                 content_hash = hashlib.sha256(clean.encode()).hexdigest()
                 has_changed = self._has_content_changed(source.id, content_hash)
@@ -449,7 +449,7 @@ class RegulationMonitorV2:
             content_hash = hashlib.sha256(clean.encode()).hexdigest()
             has_changed = self._has_content_changed(source.id, content_hash)
             celex_id = self._extract_celex_id(source.url) or "UNKNOWN"
-            name = f"Regulation {celex_id}"
+            name = None
 
             work_date = None
             expression_version = None
@@ -463,6 +463,8 @@ class RegulationMonitorV2:
                     work_date = existing.work_date.strftime("%Y-%m-%d")
                 if existing.expression_version:
                     expression_version = existing.expression_version
+                if existing.name:
+                    name = existing.name
             else:
                 try:
                     from .eli_client import fetch_latest_eli
@@ -471,6 +473,8 @@ class RegulationMonitorV2:
                     if meta:
                         work_date = meta.get("date")
                         expression_version = meta.get("version")
+                        if meta.get("title"):
+                            name = meta.get("title")
                 except Exception:
                     pass
 
@@ -484,6 +488,8 @@ class RegulationMonitorV2:
                 version_str = work_date.replace("-", "")
             else:
                 version_str = None
+
+            name = name or f"Regulation {celex_id}"
 
             regulation = self._ingest_regulation_text(
                 name=name,

@@ -21,3 +21,8 @@ def test_parse_rules_with_separate_marker_line():
     rules = parse_rules(text)
     sub = next(r for r in rules if r["section_code"] == "Article1.1.a")
     assert "Subpoint text" in sub["content"]
+
+
+def test_sanitize_content_removes_annexe_and_lang_markers():
+    raw = "ANNEXE IV\nEN\nFR\nSome text"
+    assert _sanitize_content(raw) == "Some text"
