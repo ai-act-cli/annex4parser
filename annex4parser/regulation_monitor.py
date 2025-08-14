@@ -54,6 +54,9 @@ TITLE_VERB = re.compile(
 )
 # мусорные «бэктики» на EUR-Lex (например, Subject matter`)
 BAD_TICKS = re.compile(r"[`´]")
+# Границы статей: допускаем инлайн-тайтл, но отсеиваем кросс-ссылки типа "Article 98(2)"
+# (важно: не ставим \b после номера — там может сразу идти 'Artikel 97')
+ARTICLE_BOUNDARY_RE = re.compile(r"(?im)^\s*Article\s+\d+[a-zA-Z]?(?!\s*\()")
 
 
 def _is_title_like(s: str) -> bool:
@@ -68,6 +71,23 @@ def _is_title_like(s: str) -> bool:
 
 def _clean_title_piece(s: str) -> str:
     return BAD_TICKS.sub("", s).strip()
+
+
+def _clip_bilingual_trail(s: str) -> str:
+    """
+    Обрезать при склейке двух языков без разделителя.
+    Пример: 'Committee procedureAusschussverfahren' -> 'Committee procedure'
+    Эвристика: граница [a-z][A-Z][a-z]
+    """
+    return re.sub(r"(?<=[a-z])([A-Z][a-z].*)$", "", s).strip()
+
+
+def _norm_title_text(s: str) -> str:
+    s = BAD_TICKS.sub("", s)
+    s = re.sub(r"^[\u2013\u2014\-:;,\.]+\s*", "", s).strip()
+    s = _clip_bilingual_trail(s)
+    s = re.split(r"\s{2,}", s)[0].strip()
+    return s
 
 
 def canonicalize(code: str) -> str:
@@ -174,26 +194,10 @@ def parse_rules(raw_text: str) -> List[dict]:
     # ---- Сначала найдем все границы Articles и Annexes ----
     boundaries = []
 
-    # Вспомогательная проверка: «это действительно шапка статьи, а не перенос кросс-ссылки»
-    def _article_header_is_valid(t: str, start: int, end: int) -> bool:
-        block = t[end : end + 800]
-        lines = [ln.strip() for ln in block.splitlines()[:8] if ln.strip()]
-        # title-like строка в ближайших 3 — ок
-        for ln in lines[:3]:
-            ln = re.sub(r"^[\u2013\u2014\-–—:;,\.]+\s*", "", ln)
-            if _is_title_like(ln):
-                return True
-        # либо встретили пронумерованный подпункт "1. " в первых строках
-        for ln in lines[:8]:
-            if re.match(r"^\d+\.\s+", ln):
-                return True
-        return False
+    # Находим заголовки статей (инлайн заголовок допускается)
+    for m in ARTICLE_BOUNDARY_RE.finditer(text):
+        boundaries.append(("Article", m.start(), m.group(0).strip()))
 
-    # Находим все Articles
-    for m in re.finditer(r"(?m)^(\s*Article\s+\d+[a-zA-Z]?)\b", text):
-        if _article_header_is_valid(text, m.start(), m.end()):
-            boundaries.append(("Article", m.start(), m.group(1).strip()))
-    
     # Находим все Annexes (case insensitive)
     for match in re.finditer(r"(?i)(?m)^(\s*ANNEX\s+[IVXLC]+\b)", text):
         boundaries.append(("Annex", match.start(), match.group(1).strip()))
@@ -210,18 +214,22 @@ def parse_rules(raw_text: str) -> List[dict]:
         if block_type == "Article":
             # Парсим Article
             lines = block_text.splitlines()
-            m = re.match(r"\s*Article\s+(\d+[a-zA-Z]?)\b(.*)", lines[0], re.I)
+            # ВАЖНО: без \b после номера — сразу после цифр может идти 'Artikel 97'
+            m = re.match(r"\s*Article\s+(\d+[a-zA-Z]?)(.*)", lines[0], re.I)
             if m:
                 code = m.group(1).strip()
                 if code[-1].isalpha():
                     code = f"{code[:-1]}{code[-1].lower()}"
-                rest = m.group(2) or ""
-                title = re.sub(r"^\s*[\u2013\u2014\-:;,\.]\s*", "", rest).strip()
-                title = _clean_title_piece(title)
+                rest = (m.group(2) or "")
+                # Сносим склейку "Artikel 97" и нормализуем хвост
+                rest = re.sub(r"(?i)^\s*Artikel\s+\d+[a-zA-Z]?\s*", "", rest).strip()
+                t0 = _norm_title_text(rest)
+                title = t0 if _is_title_like(t0) else ""
                 title_line_idx = 0
                 if not title:
                     marker_seen = False
-                    for k in range(1, min(8, len(lines))):
+                    # Ищем тайтл глубже (до 12 строк на всякий)
+                    for k in range(1, min(12, len(lines))):
                         cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
                         if not cand:
                             continue
@@ -232,8 +240,10 @@ def parse_rules(raw_text: str) -> List[dict]:
                             continue
                         if marker_seen:
                             break
-                        cand_norm = re.sub(r"^[\u2013\u2014\-:;,\.]\s*", "", cand).strip()
+                        cand_norm = _norm_title_text(cand)
                         cand_norm = _clean_title_piece(cand_norm)
+                        if cand_norm in {".", ";", ";.", ","}:
+                            continue
                         if not _is_title_like(cand_norm):
                             continue
                         title = cand_norm
