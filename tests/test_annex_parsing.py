@@ -174,7 +174,8 @@ class TestAnnexParsing:
 
         1. Providers shall maintain documentation.
 
-        ANNEX IV Technical documentation
+        ANNEX IV
+        Technical documentation
 
         1. General description:
            (a) intended purpose;
