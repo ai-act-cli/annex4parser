@@ -17,10 +17,10 @@ def test_sanitize_content_preserves_marker_with_blank_line():
 
 
 def test_parse_rules_with_separate_marker_line():
-    text = "Article 1\n1.\n(a)\nSubpoint text\n"
+    text = "Article 1\n1.\n(a)\nThe provider shall ensure\n"
     rules = parse_rules(text)
     sub = next(r for r in rules if r["section_code"] == "Article1.1.a")
-    assert "Subpoint text" in sub["content"]
+    assert "provider shall ensure" in sub["content"]
 
 
 def test_sanitize_content_removes_annexe_and_lang_markers():

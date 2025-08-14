@@ -172,7 +172,7 @@ class TestRegulationMonitorV2:
 
         monitor = RegulationMonitorV2(test_db, config_path=test_config_path)
 
-        text = "Test Regulation\nArticle 1 - Scope\nThis Regulation applies."
+        text = "Test Regulation\nTest Regulation\nArticle 1 - Scope\nThis Regulation applies."
         monitor._ingest_regulation_text(
             name="Test Regulation",
             version="20240613",
@@ -191,6 +191,14 @@ class TestRegulationMonitorV2:
                     "Article 1 - Scope\nThis Regulation applies.",
                 ),
             )
+            setup_aiohttp_mocks(
+                m,
+                "https://eur-lex.europa.eu/eli/reg/2024/9999/oj/eng",
+                content=mock_html_content(
+                    "Test Regulation",
+                    "Article 1 - Scope\nThis Regulation applies.",
+                ),
+            )
             captured = {}
             orig = monitor._ingest_regulation_text
 
@@ -198,12 +206,13 @@ class TestRegulationMonitorV2:
                 captured["work_date"] = kwargs.get("work_date")
                 return orig(*args, **kwargs)
 
-            with patch.object(monitor, "_ingest_regulation_text", side_effect=wrapper):
+            with patch("annex4parser.eli_client.fetch_latest_eli", new=AsyncMock(return_value={"date": "2024-06-13"})), \
+                 patch.object(monitor, "_ingest_regulation_text", side_effect=wrapper):
                 async with aiohttp.ClientSession() as session:
                     await monitor._process_html_source(source, session)
 
-        assert captured["work_date"] == "2024-06-13"
-        assert "T" not in captured["work_date"]
+            assert captured["work_date"] == "2024-06-13"
+            assert "T" not in captured["work_date"]
 
         reg = test_db.query(Regulation).filter_by(celex_id="32024R9999").one()
         assert reg.version == "20240613"

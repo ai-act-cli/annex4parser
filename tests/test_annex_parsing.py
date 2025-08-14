@@ -54,7 +54,7 @@ class TestAnnexParsing:
         """Подзаголовки после основной строки не попадают в title."""
         text = """
         ANNEX XI
-        Technical documentation referred to in Article 53(1), point (a) — technical documentation for providers of general-purpose AI models.
+        Technical documentation referred to in Article 53(1), point (a) — technical documentation for providers of general-purpose AI models
         Transparency information referred to in Article 53(1), point (b) — technical documentation for providers of general-purpose AI models
 
         1. Point one
