@@ -8,7 +8,12 @@ from sqlalchemy.orm import sessionmaker
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from annex4parser.models import Base, Document, DocumentRuleMapping, Regulation, Rule, ComplianceAlert
-from annex4parser.regulation_monitor import update_regulation, canonicalize, parse_rules
+from annex4parser.regulation_monitor import (
+    update_regulation,
+    canonicalize,
+    parse_rules,
+    fetch_regulation_text,
+)
 
 def setup_db():
     engine = create_engine('sqlite:///:memory:')
@@ -83,6 +88,57 @@ def test_article_does_not_split_on_year_like_numbers():
     codes = {r["section_code"] for r in parsed}
     assert "Article39.1" in codes
     assert "Article39.2025" not in codes
+
+
+def test_fetch_regulation_text(monkeypatch):
+    html = "<html><body><p>Article 1</p><p>Scope</p></body></html>"
+
+    class DummyResponse:
+        def __init__(self, content: str):
+            self.content = content.encode("utf-8")
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr("requests.get", lambda url, timeout=30: DummyResponse(html))
+    text = fetch_regulation_text("http://example.com")
+    assert "Article 1" in text
+    assert "Scope" in text
+
+
+def test_parse_rules_skips_crossrefs_and_bad_titles():
+    text = (
+        "Article 97 Exercise of the delegation\n"
+        "1. Body\n"
+        "Article 98 Committee procedureAusschussverfahren\n"
+        "1. Body\n"
+        "Article 99 shall also apply.\n"
+    )
+    parsed = parse_rules(text)
+    articles = {r["section_code"]: r for r in parsed if "." not in r["section_code"]}
+    assert "Article97" in articles
+    assert "Article98" in articles
+    assert "Article99" not in articles  # cross-reference should be ignored
+    assert articles["Article98"]["title"] == "Committee procedure"
+
+
+def test_parse_rules_ignores_chapter_headers():
+    text = "Article 1\nCHAPTER V\n1. Body\n"
+    parsed = parse_rules(text)
+    art1 = next(r for r in parsed if r["section_code"] == "Article1")
+    assert art1["title"] is None
+
+
+def test_parse_rules_skips_service_headings_in_deep_scan():
+    text = (
+        "Article 98\n"
+        "CHAPTER V\n"
+        "Committee procedureAusschussverfahren\n"
+        "1. Body\n"
+    )
+    parsed = parse_rules(text)
+    art98 = next(r for r in parsed if r["section_code"] == "Article98")
+    assert art98["title"] == "Committee procedure"
 
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
