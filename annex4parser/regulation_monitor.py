@@ -54,9 +54,10 @@ TITLE_VERB = re.compile(
 )
 # мусорные «бэктики» на EUR-Lex (например, Subject matter`)
 BAD_TICKS = re.compile(r"[`´]")
-# Границы статей: допускаем инлайн-тайтл, но отсеиваем кросс-ссылки типа "Article 98(2)"
-# (важно: не ставим \b после номера — там может сразу идти 'Artikel 97')
-ARTICLE_BOUNDARY_RE = re.compile(r"(?im)^\s*Article\s+\d+[a-zA-Z]?(?!\s*\()")
+# заголовки разделов — их не считаем title статьи
+BAD_HEAD = re.compile(r"^(CHAPTER|SECTION|SUBSECTION|TITLE|ANNEX|PART)\b", re.I)
+# Границы статей: не принимать кросс-ссылки типа "Article 98(2)"
+ARTICLE_BOUNDARY_RE = re.compile(r"(?im)^\s*Article\s+\d+[a-zA-Z]?(?!\s*\()", re.I | re.M)
 
 
 def _is_title_like(s: str) -> bool:
@@ -66,6 +67,7 @@ def _is_title_like(s: str) -> bool:
         and not STOP_START.match(s)
         and not s[:1].islower()
         and not TITLE_VERB.search(s)
+        and not BAD_HEAD.match(s)
     )
 
 
@@ -189,14 +191,37 @@ def parse_rules(raw_text: str) -> List[dict]:
       - parent_section_code: optional (for Annex children)
     """
     rules: List[dict] = []
-    text = raw_text.strip()
+    # Нормализуем сразу (NBSP → пробелы, NFKC)
+    text = unicodedata.normalize("NFKC", raw_text).replace("\xa0", " ").strip()
 
     # ---- Сначала найдем все границы Articles и Annexes ----
     boundaries = []
 
-    # Находим заголовки статей (инлайн заголовок допускается)
+    # Валидация «это реально шапка статьи, а не кросс-ссылка»
+    def _article_header_is_valid(t: str, start: int, end: int) -> bool:
+        block = t[end : end + 1200]
+        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        # В первых 5 строках должен быть либо нормальный title,
+        # либо начало пунктов "1. "
+        for ln in lines[:5]:
+            ln0 = _norm_title_text(ln)
+            if _is_title_like(ln0):
+                return True
+        for ln in lines[:10]:
+            if re.match(r"^\d+\.\s+", ln):
+                return True
+        # Допустим также билингву "Artikel {N}" рядом
+        mnum = re.match(r"^\s*Article\s+(\d+[a-zA-Z]?)", t[start:end], re.I)
+        if mnum:
+            n = re.escape(mnum.group(1))
+            if any(re.match(fr"(?i)^\s*Artikel\s+{n}\b", ln) for ln in lines[:5]):
+                return True
+        return False
+
+    # Находим заголовки статей и отбрасываем кросс-ссылки
     for m in ARTICLE_BOUNDARY_RE.finditer(text):
-        boundaries.append(("Article", m.start(), m.group(0).strip()))
+        if _article_header_is_valid(text, m.start(), m.end()):
+            boundaries.append(("Article", m.start(), m.group(0).strip()))
 
     # Находим все Annexes (case insensitive)
     for match in re.finditer(r"(?i)(?m)^(\s*ANNEX\s+[IVXLC]+\b)", text):
@@ -228,8 +253,8 @@ def parse_rules(raw_text: str) -> List[dict]:
                 title_line_idx = 0
                 if not title:
                     marker_seen = False
-                    # Ищем тайтл глубже (до 12 строк на всякий)
-                    for k in range(1, min(12, len(lines))):
+                    # Ищем заголовок глубже — до 20 строк
+                    for k in range(1, min(20, len(lines))):
                         cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
                         if not cand:
                             continue
@@ -241,7 +266,11 @@ def parse_rules(raw_text: str) -> List[dict]:
                         if marker_seen:
                             break
                         cand_norm = _norm_title_text(cand)
-                        cand_norm = _clean_title_piece(cand_norm)
+                        # Явно отсекаем служебные шапки и "ALL CAPS"/романские номера
+                        if BAD_HEAD.match(cand_norm) or re.match(r"^(CHAPTER|SECTION|SUBSECTION|TITLE|PART)\b", cand_norm, re.I):
+                            continue
+                        if re.fullmatch(r"[A-Z0-9\s\-–—IVXLC]+", cand_norm):
+                            continue
                         if cand_norm in {".", ";", ";.", ","}:
                             continue
                         if not _is_title_like(cand_norm):
