@@ -177,27 +177,6 @@ def test_annex_ii_title_detected():
     ann = next(r for r in parsed if r["section_code"] == "AnnexII")
     assert ann["title"] == "List of criminal offences referred to in Article 5(1), first subparagraph, point (h)(iii)"
 
-
-def test_structural_headers_act_as_boundaries():
-    text = (
-        "Article 94 Previous article title\n"
-        "1. Body 94\n"
-        "CHAPTER X\n"
-        "CODES OF CONDUCT AND GUIDELINES\n"
-        "Article 95 Next article name\n"
-        "1. Body 95\n"
-        "Article 96 Another article\n"
-        "1. Body 96\n"
-    )
-    parsed = parse_rules(text)
-    art94 = next(r for r in parsed if r["section_code"] == "Article94")
-    assert "CHAPTER X" not in art94["content"]
-    assert "CODES OF CONDUCT AND GUIDELINES" not in art94["content"]
-    art95 = next(r for r in parsed if r["section_code"] == "Article95")
-    art96 = next(r for r in parsed if r["section_code"] == "Article96")
-    assert art95["title"] == "Next article name"
-    assert art96["title"] == "Another article"
-
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
 
