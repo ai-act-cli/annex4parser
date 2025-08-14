@@ -212,18 +212,26 @@ def parse_rules(raw_text: str) -> List[dict]:
 
     # Вспомогательная валидация: это реально шапка статьи, а не кросс-ссылка
     def _article_header_is_valid(t: str, start: int, end: int) -> bool:
+        # 1) хвост ТЕКУЩЕЙ строки сразу после "Article N" не должен выглядеть как продолжение предложения
+        line_end = t.find("\n", end)
+        if line_end == -1:
+            line_end = len(t)
+        tail = t[end:line_end].strip()
+        if tail and (tail[:1].islower() or TITLE_VERB.search(tail)):
+            return False
+
         block = t[end : end + 1200]
         lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
-        # в первых 5 строках должен быть заголовок или в первых 10 — начало пунктов "1. "
+        # 2) в первых 5 строках — заголовок; либо в первых 10 — начало пунктов "1."
         if any(_is_title_like(_norm_title_text(ln)) for ln in lines[:5]):
             return True
         if any(re.match(r"^\d+\.\s+", ln) for ln in lines[:10]):
             return True
-        # биллингва "Artikel {N}" рядом — тоже ок
+        # 3) Билингва "Artikel N" принимается только если это САМА линия заголовка, без хвоста
         mnum = re.match(r"^\s*Article\s+(\d+[a-zA-Z]?)", t[start:end], re.I)
         if mnum:
             n = re.escape(mnum.group(1))
-            if any(re.match(fr"(?i)^\s*Artikel\s+{n}\b", ln) for ln in lines[:5]):
+            if any(re.match(fr"(?i)^\s*Artikel\s+{n}\s*$", ln) for ln in lines[:5]):
                 return True
         return False
 
@@ -290,7 +298,8 @@ def parse_rules(raw_text: str) -> List[dict]:
                         if ENUM_PREFIX.match(cand):
                             continue
                         cand_norm = _norm_title_text(cand)
-                        if _is_hard_title_candidate(cand_norm):
+                        # Не брать в качестве заголовка строки, явно продолжающие предложение
+                        if _is_hard_title_candidate(cand_norm) and not TITLE_VERB.search(cand_norm[:20]):
                             title = cand_norm
                             title_line_idx = k
                             break
