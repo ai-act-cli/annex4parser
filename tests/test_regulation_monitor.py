@@ -140,6 +140,30 @@ def test_parse_rules_skips_service_headings_in_deep_scan():
     art98 = next(r for r in parsed if r["section_code"] == "Article98")
     assert art98["title"] == "Committee procedure"
 
+
+def test_article_47_title_found_after_noise():
+    # Эмулируем структуру, где title не на первой строке
+    text = (
+        "Article 47\n"
+        "CHAPTER V\n"
+        "EU declaration of conformity\n"
+        "1. The provider shall draw up an EU declaration of conformity...\n"
+    )
+    parsed = parse_rules(text)
+    art = next(r for r in parsed if r["section_code"] == "Article47")
+    assert art["title"] == "EU declaration of conformity"
+
+
+def test_annex_ii_title_detected():
+    text = (
+        "ANNEX II\n"
+        "List of criminal offences referred to in Article 5(1), first subparagraph, point (h)(iii)\n"
+        "1. Some content\n"
+    )
+    parsed = parse_rules(text)
+    ann = next(r for r in parsed if r["section_code"] == "AnnexII")
+    assert ann["title"] == "List of criminal offences referred to in Article 5(1), first subparagraph, point (h)(iii)"
+
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
 
