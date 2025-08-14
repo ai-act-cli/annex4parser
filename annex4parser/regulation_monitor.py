@@ -54,10 +54,13 @@ TITLE_VERB = re.compile(
 )
 # мусорные «бэктики» на EUR-Lex (например, Subject matter`)
 BAD_TICKS = re.compile(r"[`´]")
-# заголовки разделов — их не считаем title статьи
+# заголовки разделов — их не считаем заголовком статьи
 BAD_HEAD = re.compile(r"^(CHAPTER|SECTION|SUBSECTION|TITLE|ANNEX|PART)\b", re.I)
 # Границы статей: не принимать кросс-ссылки типа "Article 98(2)"
 ARTICLE_BOUNDARY_RE = re.compile(r"(?im)^\s*Article\s+\d+[a-zA-Z]?(?!\s*\()", re.I | re.M)
+END_PUNCT = re.compile(r"[.:;]\s*$")
+ALL_CAPS_ROMAN = re.compile(r"^[A-Z0-9\s\-–—IVXLC]+$")
+ENUM_PREFIX = re.compile(r"^(\(?[0-9ivx]+\)?\.?|\([a-zA-Z]\))\s+")
 
 
 def _is_title_like(s: str) -> bool:
@@ -90,6 +93,16 @@ def _norm_title_text(s: str) -> str:
     s = _clip_bilingual_trail(s)
     s = re.split(r"\s{2,}", s)[0].strip()
     return s
+
+
+def _is_hard_title_candidate(s: str) -> bool:
+    """Более строгая проверка заголовка, чтобы безопасно искать его даже после начала пунктов."""
+    return (
+        _is_title_like(s)
+        and not END_PUNCT.search(s)               # не заканчивается на . ; :
+        and not ALL_CAPS_ROMAN.fullmatch(s)       # не «CHAPTER V», «ANNEX II», «IV X …»
+        and len(s) <= 220
+    )
 
 
 def canonicalize(code: str) -> str:
@@ -253,7 +266,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                 title_line_idx = 0
                 if not title:
                     marker_seen = False
-                    # Ищем заголовок глубже — до 20 строк
+                    # 1-й проход: «до пунктов»
                     for k in range(1, min(20, len(lines))):
                         cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
                         if not cand:
@@ -266,18 +279,25 @@ def parse_rules(raw_text: str) -> List[dict]:
                         if marker_seen:
                             break
                         cand_norm = _norm_title_text(cand)
-                        # Явно отсекаем служебные шапки и "ALL CAPS"/романские номера
-                        if BAD_HEAD.match(cand_norm) or re.match(r"^(CHAPTER|SECTION|SUBSECTION|TITLE|PART)\b", cand_norm, re.I):
+                        if _is_title_like(cand_norm) and not END_PUNCT.search(cand_norm) and not ALL_CAPS_ROMAN.fullmatch(cand_norm):
+                            title = cand_norm
+                            title_line_idx = k
+                            break
+                # 2-й проход (fallback): если не нашли — ищем в первых 50 строках даже после начала пунктов
+                if not title:
+                    for k in range(1, min(50, len(lines))):
+                        cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
+                        if not cand:
                             continue
-                        if re.fullmatch(r"[A-Z0-9\s\-–—IVXLC]+", cand_norm):
+                        if re.match(r"^(ANNEX|Article)\b", cand, re.I):
+                            break
+                        if ENUM_PREFIX.match(cand):
                             continue
-                        if cand_norm in {".", ";", ";.", ","}:
-                            continue
-                        if not _is_title_like(cand_norm):
-                            continue
-                        title = cand_norm
-                        title_line_idx = k
-                        break
+                        cand_norm = _norm_title_text(cand)
+                        if _is_hard_title_candidate(cand_norm):
+                            title = cand_norm
+                            title_line_idx = k
+                            break
                 rule_title = (title or None)
                 raw = "\n".join(lines[title_line_idx + 1:]).strip()
                 content = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw))
@@ -305,14 +325,14 @@ def parse_rules(raw_text: str) -> List[dict]:
                     t = _clean_title_piece(t)
                     t = re.sub(r"^[\u2013\u2014\-:;,\.]\s*", "", t)
                     annex_title = re.split(r"\s{2,}", t)[0].strip()
-                if annex_title and (not _is_title_like(annex_title) or TITLE_VERB.search(annex_title)):
+                if annex_title and (not _is_title_like(annex_title) or TITLE_VERB.search(annex_title) or END_PUNCT.search(annex_title)):
                     annex_title = ""
 
                 if not annex_title:
-                    # Берём ТОЛЬКО первую «title-like» строку после заголовка
+                    # Берём ТОЛЬКО первую «title-like» строку после заголовка (до 40 строк)
                     k = 1
                     first_title = ""
-                    while k < len(lines):
+                    while k < min(40, len(lines)):
                         t_norm = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
                         if not t_norm:
                             k += 1
@@ -326,7 +346,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                             break
                         t_norm = _clean_title_piece(re.sub(r"^[\u2013\u2014\-:;,\.]\s*", "", t_norm))
                         # Если строка выглядит как обычное предложение с глаголом — это уже контент, не title
-                        if TITLE_VERB.search(t_norm):
+                        if TITLE_VERB.search(t_norm) or END_PUNCT.search(t_norm) or ALL_CAPS_ROMAN.fullmatch(t_norm):
                             break
                         if not _is_title_like(t_norm):
                             break
