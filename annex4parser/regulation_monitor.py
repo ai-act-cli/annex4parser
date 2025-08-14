@@ -58,6 +58,10 @@ BAD_TICKS = re.compile(r"[`´]")
 BAD_HEAD = re.compile(r"^(CHAPTER|SECTION|SUBSECTION|TITLE|ANNEX|PART)\b", re.I)
 # Границы статей: не принимать кросс-ссылки типа "Article 98(2)"
 ARTICLE_BOUNDARY_RE = re.compile(r"(?im)^\s*Article\s+\d+[a-zA-Z]?(?!\s*\()", re.I | re.M)
+# Структурные заголовки (глава/секция/часть), которые выступают как «разделители» между статьями
+STRUCT_BOUNDARY_RE = re.compile(
+    r"(?im)^\s*(CHAPTER|SECTION|SUBSECTION|TITLE|PART)\s+[IVXLC0-9A-Z]+\b"
+)
 END_PUNCT = re.compile(r"[.:;]\s*$")
 ALL_CAPS_ROMAN = re.compile(r"^[A-Z0-9\s\-–—IVXLC]+$")
 ENUM_PREFIX = re.compile(r"^(\(?[0-9ivx]+\)?\.?|\([a-zA-Z]\))\s+")
@@ -243,15 +247,37 @@ def parse_rules(raw_text: str) -> List[dict]:
     # Находим все Annexes (case insensitive)
     for match in re.finditer(r"(?i)(?m)^(\s*ANNEX\s+[IVXLC]+\b)", text):
         boundaries.append(("Annex", match.start(), match.group(1).strip()))
+
+    # Находим структурные заголовки (CHAPTER/SECTION/…); используем их как мягкие границы
+    for match in STRUCT_BOUNDARY_RE.finditer(text):
+        boundaries.append(("Divider", match.start(), match.group(0).strip()))
     
     # Сортируем по позиции в тексте
     boundaries.sort(key=lambda x: x[1])
+
+    # Удаляем структурные заголовки, которые идут сразу после шапки Article/Annex
+    # без какого-либо контента — они относятся к текущей статье, а не отделяют следующую.
+    filtered_boundaries = []
+    for kind, pos, hdr in boundaries:
+        if kind == "Divider" and filtered_boundaries:
+            prev_kind, prev_pos, _ = filtered_boundaries[-1]
+            segment = text[prev_pos:pos].strip()
+            if prev_kind == "Article" and re.fullmatch(r"(?is)^Article\s+\d+[a-zA-Z]?", segment):
+                continue
+            if prev_kind == "Annex" and re.fullmatch(r"(?is)^ANNEX\s+[IVXLC]+", segment):
+                continue
+        filtered_boundaries.append((kind, pos, hdr))
+    boundaries = filtered_boundaries
     
     # ---- Обрабатываем каждый блок ----
     for i, (block_type, start_pos, header) in enumerate(boundaries):
         # Определяем конец блока
         end_pos = boundaries[i + 1][1] if i + 1 < len(boundaries) else len(text)
         block_text = text[start_pos:end_pos].strip()
+
+        # «Divider» — это только граница; правил не создаём
+        if block_type == "Divider":
+            continue
         
         if block_type == "Article":
             # Парсим Article
