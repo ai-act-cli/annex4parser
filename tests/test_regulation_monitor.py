@@ -167,6 +167,39 @@ def test_article_47_title_found_after_noise():
     assert art["title"] == "EU declaration of conformity"
 
 
+def test_annex_not_cut_by_structural_headers():
+    text = (
+        "ANNEX I\n"
+        "SECTION A\n"
+        "A content line\n"
+        "SECTION B\n"
+        "B content line\n"
+        "ANNEX II\n"
+        "Some other annex\n"
+        "1. body\n"
+    )
+    parsed = parse_rules(text)
+    ann1 = next(r for r in parsed if r["section_code"] == "AnnexI")
+    assert "SECTION A" in ann1["content"]
+    assert "A content line" in ann1["content"]
+    assert "B content line" in ann1["content"]
+
+
+def test_article_cut_by_structural_headers():
+    text = (
+        "Article 94 Title 94\n"
+        "1. Body 94\n"
+        "CHAPTER X\n"
+        "CODES OF CONDUCT AND GUIDELINES\n"
+        "Article 95 Title 95\n"
+        "1. Body 95\n"
+    )
+    parsed = parse_rules(text)
+    art94 = next(r for r in parsed if r["section_code"] == "Article94")
+    assert "CHAPTER X" not in art94["content"]
+    assert "CODES OF CONDUCT" not in art94["content"]
+
+
 def test_annex_ii_title_detected():
     text = (
         "ANNEX II\n"
