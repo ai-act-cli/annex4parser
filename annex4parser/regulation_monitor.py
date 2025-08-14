@@ -295,25 +295,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                             title_line_idx = k
                             break
                 rule_title = (title or None)
-                # Базовый контент — всё после строки с заголовком
-                raw_lines = lines[title_line_idx + 1:]
-                raw = "\n".join(raw_lines).strip()
-
-                # Fallback: если контент пустой (редкие кейсы типа Article 94),
-                # попробуем взять всё после первой строки "Article N ..." до конца блока,
-                # пропуская служебные шапки вроде CHAPTER/SECTION.
-                if not raw:
-                    alt_lines = []
-                    for ln in lines[1:]:
-                        s = unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip()
-                        if not s:
-                            continue
-                        if BAD_HEAD.match(s):
-                            # пропускаем одиночные служебные шапки
-                            continue
-                        alt_lines.append(ln)
-                    raw = "\n".join(alt_lines).strip()
-
+                raw = "\n".join(lines[title_line_idx + 1:]).strip()
                 content = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw))
                 parent_code = canonicalize(f"Article{code}")
                 rules.append({
