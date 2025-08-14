@@ -122,6 +122,19 @@ def test_parse_rules_skips_crossrefs_and_bad_titles():
     assert articles["Article98"]["title"] == "Committee procedure"
 
 
+def test_cross_reference_article_94_does_not_create_empty_article():
+    text = (
+        "Article 93 Miscellaneous\n"
+        "1. The measures in Article 94 shall apply where appropriate.\n"
+        "Article 94 Procedural rights of economic operators of the general-purpose AI model\n"
+        "1. Providers shall have rights.\n"
+    )
+    parsed = parse_rules(text)
+    article94_entries = [r for r in parsed if r["section_code"] == "Article94"]
+    assert len(article94_entries) == 1
+    assert article94_entries[0]["content"].strip()
+
+
 def test_parse_rules_ignores_chapter_headers():
     text = "Article 1\nCHAPTER V\n1. Body\n"
     parsed = parse_rules(text)
