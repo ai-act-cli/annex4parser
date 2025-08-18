@@ -56,6 +56,20 @@ def _stable_oj_url(celex: str) -> str:
     return f"https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A{celex}"
 
 
+def _unwrap_soft_linebreaks(s: str) -> str:
+    """Join soft-wrapped lines while keeping structural breaks intact."""
+    s = re.sub(r"(\w)[\u2010-\u2014-]\s*\n\s*(\w)", r"\1\2", s)
+
+    def _join(m: re.Match) -> str:
+        before, after = m.group(1), m.group(2)
+        if re.match(r"^\s*(?:\(?[a-z]\)|\([ivx]+\)|\d+\.)\s+", after, re.I):
+            return before + "\n" + after
+        if re.match(r"^(?:ANNEX|Article|Section|Chapter|Part)\b", after, re.I):
+            return before + "\n" + after
+        return before + " " + after
+
+    return re.sub(r"([^\n])\n(?!\n)([^\n][^\n]*)", _join, s)
+
 class RegulationMonitorV2:
     """Production-grade монитор регуляторов с мультисорс-поддержкой."""
     
@@ -638,6 +652,7 @@ class RegulationMonitorV2:
         # схлопываем пробелы/пустые абзацы
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
+        text = _unwrap_soft_linebreaks(text)
         return text.strip()
 
     async def _fetch_pdf_text(self, session: aiohttp.ClientSession, url: str) -> str:

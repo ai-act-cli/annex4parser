@@ -1,9 +1,10 @@
 from annex4parser.regulation_monitor import _sanitize_content, parse_rules
+from annex4parser.regulation_monitor_v2 import RegulationMonitorV2
 
 
 def test_sanitize_content_preserves_marker_with_text():
     raw = "(a)\nSome point"
-    assert _sanitize_content(raw).startswith("(a)\nSome point")
+    assert _sanitize_content(raw).startswith("(a) Some point")
 
 
 def test_sanitize_content_drops_hanging_marker():
@@ -26,3 +27,19 @@ def test_parse_rules_with_separate_marker_line():
 def test_sanitize_content_removes_annexe_and_lang_markers():
     raw = "ANNEXE IV\nEN\nFR\nSome text"
     assert _sanitize_content(raw) == "Some text"
+
+
+def test_sanitize_content_unwraps_soft_linebreaks():
+    raw = "including with other AI\nsystems, that are not"
+    assert _sanitize_content(raw) == "including with other AI systems, that are not"
+
+
+def test_sanitize_content_unwraps_hyphen_breaks():
+    raw = "inter-\noperability"
+    assert _sanitize_content(raw) == "interoperability"
+
+
+def test_sanitize_text_unwraps_soft_linebreaks():
+    monitor = RegulationMonitorV2.__new__(RegulationMonitorV2)
+    raw = "including with other AI\nsystems, that are not"
+    assert monitor._sanitize_text(raw) == "including with other AI systems, that are not"
