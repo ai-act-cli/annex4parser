@@ -282,6 +282,13 @@ def parse_rules(raw_text: str) -> List[dict]:
         if tail and (tail[:1].islower() or TITLE_VERB.search(tail)):
             return False
 
+        # Грубая защита: "Article N" сразу под ANNEX — это, как правило,
+        # часть заголовка Annex (кросс-ссылка), а не начало новой статьи.
+        ctx_before = t[max(0, start - 300):start]
+        prev_nonempty = [ln.strip() for ln in ctx_before.splitlines() if ln.strip()]
+        if prev_nonempty and re.match(r"(?i)^ANNEX\s+[IVXLC]+\b", prev_nonempty[-1]):
+            return False
+
         block = t[end : end + 1200]
         lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
         # 2) в первых 5 строках — заголовок; либо в первых 10 — начало пунктов "1."
@@ -460,6 +467,15 @@ def parse_rules(raw_text: str) -> List[dict]:
                         break
                     annex_title = first_title
                     consumed = (k - 1) if annex_title else 0
+                # OJ часто переносит кросс-ссылку на отдельную строку: "Article 49"
+                # Если следом за титульной строкой идёт "Article N" — приклеиваем её к заголовку
+                if annex_title:
+                    idx = 1 + consumed
+                    if idx < len(lines):
+                        nxt = unicodedata.normalize("NFKC", lines[idx]).replace("\xa0", " ").strip()
+                        if re.match(r"(?i)^Article\s+\d+[a-zA-Z]?(?:\([^)]+\))?$", nxt):
+                            annex_title = f"{annex_title} {nxt}"
+                            consumed += 1
 
                 raw_body = "\n".join(lines[1 + consumed:]).strip()
                 body = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw_body))
@@ -729,7 +745,7 @@ class RegulationMonitor:
 
         # Парсим и вставляем новые правила (с поддержкой parent_rule_id для Annex)
         code_to_rule = {}
-        for rule_data in parse_rules(clean_text):
+        for rule_data in parse_rules(raw_text):
             new_rule = Rule(
                 regulation_id=reg.id,
                 section_code=rule_data["section_code"],
