@@ -221,6 +221,35 @@ def fetch_regulation_text(url: str) -> str:
     return soup.get_text(separator="\n")
 
 
+def _split_annex_sections(body: str):
+    """
+    Разрезает текст Annex по заголовкам вида:
+      Section A — ..., Section B — ..., Section C — ...
+    Возвращает список кортежей (letter, title_line, section_body).
+    Если секций нет — возвращает пустой список.
+    """
+    sec_re = re.compile(r"(?im)^\s*Section\s+([A-Z])\b[^\n]*$")
+    lines = body.splitlines()
+    hits = []
+    for i, ln in enumerate(lines):
+        norm = unicodedata.normalize("NFKC", ln).replace("\xa0", " ").strip()
+        if sec_re.match(norm):
+            hits.append(i)
+    if not hits:
+        return []
+    hits.append(len(lines))  # хвост до конца
+    out = []
+    for k in range(len(hits) - 1):
+        start = hits[k]
+        end = hits[k + 1]
+        title_line = lines[start]
+        m = sec_re.match(unicodedata.normalize("NFKC", title_line).replace("\xa0", " ").strip())
+        letter = m.group(1)
+        section_body = "\n".join(lines[start + 1 : end]).strip()
+        out.append((letter, title_line.strip(), section_body))
+    return out
+
+
 def parse_rules(raw_text: str) -> List[dict]:
     """Parse Articles and Annexes into rule entries (with optional parents).
 
@@ -442,8 +471,23 @@ def parse_rules(raw_text: str) -> List[dict]:
                     "content": body,
                 })
 
-                # Внутри Annex парсим подразделы
-                _parse_annex_subsections(rules, parent_code, body)
+                # Если внутри Annex есть секции Section A/B/C, создаём их и парсим подпункты внутри каждой
+                sections = _split_annex_sections(body)
+                if sections:
+                    for letter, title_line, section_body in sections:
+                        child_code = canonicalize(f"{parent_code}.{letter}")
+                        section_content = _sanitize_content(f"{title_line}\n{section_body}")
+                        rules.append({
+                            "section_code": child_code,
+                            "title": None,
+                            "content": section_content,
+                            "parent_section_code": parent_code,
+                            "order_index": format_order_index(letter),
+                        })
+                        _parse_annex_subsections(rules, child_code, section_body)
+                else:
+                    # Внутри Annex парсим подразделы
+                    _parse_annex_subsections(rules, parent_code, body)
 
     return rules
 
