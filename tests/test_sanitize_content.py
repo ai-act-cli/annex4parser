@@ -54,3 +54,17 @@ def test_sanitize_text_removes_eli_footer():
     monitor = RegulationMonitorV2.__new__(RegulationMonitorV2)
     raw = "Some text\nELI: http://example.com/eli/123\nNext"
     assert monitor._sanitize_text(raw) == "Some text\n\nNext"
+
+
+def test_sanitizers_drop_inline_eli_and_bare_url():
+    raw = "Some text (ELI: http://data.europa.eu/eli/reg/2024/1689/oj).\nNext"
+    assert _sanitize_content(raw) == "Some text.\n\nNext"
+    mon = RegulationMonitorV2.__new__(RegulationMonitorV2)
+    assert mon._sanitize_text(raw) == "Some text.\n\nNext"
+
+
+def test_sanitizers_drop_oj_footer_and_page_counter():
+    raw = "Clause...\n45/144\nEN OJ L, 12.7.2024\n"
+    assert _sanitize_content(raw) == "Clause..."
+    mon = RegulationMonitorV2.__new__(RegulationMonitorV2)
+    assert mon._sanitize_text(raw) == "Clause..."

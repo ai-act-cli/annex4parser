@@ -652,8 +652,18 @@ class RegulationMonitorV2:
         # схлопываем пробелы/пустые абзацы
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
-        # drop ELI footer lines from OJ pages
-        text = re.sub(r"(?im)^\s*ELI:\s*\S+.*$", "", text)
+        # EUR-Lex footers/tails: ELI and OJ page markers
+        text = re.sub(r"(?im)^\s*ELI:\s*\S+.*$", "", text)  # whole-line ELI footer
+        text = re.sub(
+            r"(?i)\s*\(?ELI:\s*[^\s)]+\)?([.,;:])?\n",
+            lambda m: (m.group(1) or "") + "\n\n",
+            text,
+        )
+        text = re.sub(r"(?i)\s*\(?ELI:\s*[^\s)]+\)?", "", text)  # inline ELI reference
+        text = re.sub(r"(?i)\s*https?://data\.europa\.eu/eli/\S+", "", text)  # bare ELI URL
+        text = re.sub(r"(?im)^\s*EN OJ L,?\s*\d{1,2}\.\d{1,2}\.\d{4}\s*$", "", text)
+        text = re.sub(r"(?im)^\s*\d{1,3}/\d{1,3}\s*$", "", text)
+        text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         text = _unwrap_soft_linebreaks(text)
         return text.strip()

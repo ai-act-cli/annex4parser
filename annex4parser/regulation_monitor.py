@@ -192,8 +192,18 @@ def _sanitize_content(text: str) -> str:
     cleaned = "\n".join(lines)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    # убираем служебные строки ELI футера EUR-Lex
-    cleaned = re.sub(r"(?im)^\s*ELI:\s*\S+.*$", "", cleaned)
+    # EUR-Lex footers/tails: ELI and OJ page markers
+    cleaned = re.sub(r"(?im)^\s*ELI:\s*\S+.*$", "", cleaned)  # whole-line ELI footer
+    cleaned = re.sub(
+        r"(?i)\s*\(?ELI:\s*[^\s)]+\)?([.,;:])?\n",
+        lambda m: (m.group(1) or "") + "\n\n",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?i)\s*\(?ELI:\s*[^\s)]+\)?", "", cleaned)  # inline ELI reference
+    cleaned = re.sub(r"(?i)\s*https?://data\.europa\.eu/eli/\S+", "", cleaned)  # bare ELI URL
+    cleaned = re.sub(r"(?im)^\s*EN OJ L,?\s*\d{1,2}\.\d{1,2}\.\d{4}\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*\d{1,3}/\d{1,3}\s*$", "", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     cleaned = _unwrap_soft_linebreaks(cleaned)
     return cleaned.strip()
