@@ -192,6 +192,9 @@ def _sanitize_content(text: str) -> str:
     cleaned = "\n".join(lines)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    # убираем служебные строки ELI футера EUR-Lex
+    cleaned = re.sub(r"(?im)^\s*ELI:\s*\S+.*$", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     cleaned = _unwrap_soft_linebreaks(cleaned)
     return cleaned.strip()
 

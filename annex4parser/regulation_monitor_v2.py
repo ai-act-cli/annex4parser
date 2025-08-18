@@ -652,6 +652,9 @@ class RegulationMonitorV2:
         # схлопываем пробелы/пустые абзацы
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
+        # drop ELI footer lines from OJ pages
+        text = re.sub(r"(?im)^\s*ELI:\s*\S+.*$", "", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
         text = _unwrap_soft_linebreaks(text)
         return text.strip()
 
