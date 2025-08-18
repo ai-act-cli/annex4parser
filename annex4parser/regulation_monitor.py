@@ -131,6 +131,21 @@ def format_order_index(idx: str) -> str:
     return idx.lower()
 
 
+def _unwrap_soft_linebreaks(s: str) -> str:
+    """Join soft-wrapped lines while keeping structural breaks intact."""
+    s = re.sub(r"(\w)[\u2010-\u2014-]\s*\n\s*(\w)", r"\1\2", s)
+
+    def _join(m: re.Match) -> str:
+        before, after = m.group(1), m.group(2)
+        if re.match(r"^\s*(?:\(?[a-z]\)|\([ivx]+\)|\d+\.)\s+", after, re.I):
+            return before + "\n" + after
+        if re.match(r"^(?:ANNEX|Article|Section|Chapter|Part)\b", after, re.I):
+            return before + "\n" + after
+        return before + " " + after
+
+    return re.sub(r"([^\n])\n(?!\n)([^\n][^\n]*)", _join, s)
+
+
 def _sanitize_content(text: str) -> str:
     """Remove stray footnote markers and collapse whitespace."""
     if not text:
@@ -177,6 +192,7 @@ def _sanitize_content(text: str) -> str:
     cleaned = "\n".join(lines)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = _unwrap_soft_linebreaks(cleaned)
     return cleaned.strip()
 
 def fetch_regulation_text(url: str) -> str:
