@@ -39,7 +39,18 @@ def test_sanitize_content_unwraps_hyphen_breaks():
     assert _sanitize_content(raw) == "interoperability"
 
 
+def test_sanitize_content_removes_eli_footer():
+    raw = "Some text\nELI: http://example.com/eli/123\nNext"
+    assert _sanitize_content(raw) == "Some text\n\nNext"
+
+
 def test_sanitize_text_unwraps_soft_linebreaks():
     monitor = RegulationMonitorV2.__new__(RegulationMonitorV2)
     raw = "including with other AI\nsystems, that are not"
     assert monitor._sanitize_text(raw) == "including with other AI systems, that are not"
+
+
+def test_sanitize_text_removes_eli_footer():
+    monitor = RegulationMonitorV2.__new__(RegulationMonitorV2)
+    raw = "Some text\nELI: http://example.com/eli/123\nNext"
+    assert monitor._sanitize_text(raw) == "Some text\n\nNext"
