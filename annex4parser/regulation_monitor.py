@@ -274,24 +274,11 @@ def parse_rules(raw_text: str) -> List[dict]:
 
     # Вспомогательная валидация: это реально шапка статьи, а не кросс-ссылка
     def _article_header_is_valid(t: str, start: int, end: int) -> bool:
-        # 0) GUARD: «Article N» в шапке Annex (как в Annex VIII) — это часть заголовка Annex, а не новая статья
-        back = t[max(0, start - 400):start]
-        prev_lines = [ln.strip() for ln in back.splitlines() if ln.strip()]
-        prev1 = prev_lines[-1] if prev_lines else ""
-        prev2 = prev_lines[-2] if len(prev_lines) >= 2 else ""
-        if re.search(r"(?i)^ANNEX\s+[IVXLC]+\b", prev2) and re.search(r"(?i)^Information to be submitted", prev1):
-            return False
-        # чуть более общий случай: если за 2 строки до «Article N» встречается «ANNEX …», а строка выше похожа на заголовок
-        if re.search(r"(?i)^ANNEX\s+[IVXLC]+\b", prev2) and (prev1 and not prev1.endswith((".", ":", ";"))):
-            return False
-
         # 1) хвост ТЕКУЩЕЙ строки сразу после "Article N" не должен выглядеть как продолжение предложения
         line_end = t.find("\n", end)
         if line_end == -1:
             line_end = len(t)
         tail = t[end:line_end].strip()
-        if tail.startswith(("-", "–", "—")):
-            return True
         if tail and (tail[:1].islower() or TITLE_VERB.search(tail)):
             return False
 
@@ -472,19 +459,7 @@ def parse_rules(raw_text: str) -> List[dict]:
                         k += 1
                         break
                     annex_title = first_title
-                    if annex_title:
-                        # Если следующая строка — «Article N(…)», считаем её продолжением заголовка Annex
-                        if k < len(lines):
-                            nxt = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
-                            if re.match(r"(?i)^Article\s+\d+[a-z]?(?:\(\d+\))?$", nxt):
-                                annex_title = f"{annex_title} {nxt}"
-                                consumed = k  # «съели» и эту строку
-                            else:
-                                consumed = (k - 1)
-                        else:
-                            consumed = (k - 1)
-                    else:
-                        consumed = 0
+                    consumed = (k - 1) if annex_title else 0
 
                 raw_body = "\n".join(lines[1 + consumed:]).strip()
                 body = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw_body))
