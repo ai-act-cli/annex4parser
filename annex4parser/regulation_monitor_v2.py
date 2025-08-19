@@ -172,60 +172,54 @@ class RegulationMonitorV2:
         return await self.update_by_type("html")
     
     async def update_all(self) -> Dict[str, int]:
-        """Обновить все активные источники асинхронно.
-        
+        """Обновить все активные источники детерминированно.
+
+        Источники разных типов обрабатываются последовательно в
+        приоритетном порядке: сначала ``eli_sparql`` (например,
+        метаданные и PDF‑версии), затем ``html`` (перезаписывает текст
+        регулирования, если доступна более полная HTML‑страница), и в
+        завершение ``rss``. Такая последовательность исключает случайное
+        «перетирание» данных при асинхронной работе и обеспечивает
+        стабильное число правил между запусками.
+
         Returns
         -------
         Dict[str, int]
             Статистика обновлений по типам источников
         """
-        active_sources = self.db.query(Source).filter_by(active=True).all()
+        stats = {"eli_sparql": 0, "html": 0, "rss": 0, "errors": 0}
 
-        # Группируем источники по типам
-        eli_sources = [s for s in active_sources if s.type == "eli_sparql"]
-        rss_sources = [s for s in active_sources if s.type == "rss"]
-        html_sources = [s for s in active_sources if s.type == "html"]
-        
-        # Создаём задачи для асинхронного выполнения
-        tasks: List[asyncio.Task] = []
-        async with aiohttp.ClientSession(
-            headers={
-                "User-Agent": UA,
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en",
-            }
-        ) as session:
-            # ELI SPARQL источники
-            for source in eli_sources:
-                tasks.append(self._process_eli_source(source, session))
+        # Обновляем SPARQL‑источники
+        try:
+            eli_res = await self.update_eli_sources()
+            if eli_res:
+                stats["eli_sparql"] = eli_res.get("processed", 0)
+                stats["errors"] += eli_res.get("errors", 0)
+        except Exception as e:
+            stats["errors"] += 1
+            logger.error(f"ELI SPARQL update error: {e}")
 
-            # RSS источники
-            for source in rss_sources:
-                tasks.append(self._process_rss_source(source, session))
+        # Обновляем HTML‑источники; HTML‑текст должен перезаписать SPARQL
+        try:
+            html_res = await self.update_html_sources()
+            if html_res:
+                stats["html"] = html_res.get("processed", 0)
+                stats["errors"] += html_res.get("errors", 0)
+        except Exception as e:
+            stats["errors"] += 1
+            logger.error(f"HTML update error: {e}")
 
-            # HTML источники
-            for source in html_sources:
-                tasks.append(self._process_html_source(source, session))
+        # Обновляем RSS‑источники
+        try:
+            rss_res = await self.update_rss_sources()
+            if rss_res:
+                stats["rss"] = rss_res.get("processed", 0)
+                stats["errors"] += rss_res.get("errors", 0)
+        except Exception as e:
+            stats["errors"] += 1
+            logger.error(f"RSS update error: {e}")
 
-
-            # Выполняем все задачи параллельно пока сессия открыта
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Подсчитываем статистику
-        stats = {"eli_sparql": 0, "rss": 0, "html": 0, "errors": 0}
-        for result in results:
-            if isinstance(result, Exception):
-                stats["errors"] += 1
-                logger.error(
-                    f"Source processing error ({type(result).__name__}): {result}"
-                )
-            elif result:
-                source_type = result.get("type", "unknown")
-                stats[source_type] += 1
-        
-        # Добавляем общее количество обработанных источников
-        stats["total"] = stats["eli_sparql"] + stats["rss"] + stats["html"]
-        
+        stats["total"] = stats["eli_sparql"] + stats["html"] + stats["rss"]
         logger.info(f"Update completed: {stats}")
         return stats
     
