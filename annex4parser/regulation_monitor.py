@@ -62,11 +62,9 @@ ARTICLE_BOUNDARY_RE = re.compile(r"(?im)^\s*Article\s+\d+[a-zA-Z]?(?!\s*\()", re
 STRUCT_BOUNDARY_RE = re.compile(
     r"(?im)^\s*(CHAPTER|SECTION|SUBSECTION|TITLE|PART)\s+[IVXLC0-9A-Z]+\b"
 )
-# Отдельная проверка строки-разделителя (без цифр/римских)
-STRUCT_HEADER_LINE_RE = re.compile(r"^\s*(CHAPTER|SECTION|SUBSECTION|TITLE|PART)\b", re.I)
-ENUM_PREFIX = re.compile(r"^(\(?\d+\)?\.?|\([a-zA-Z]\))\s+")
 END_PUNCT = re.compile(r"[.:;]\s*$")
 ALL_CAPS_ROMAN = re.compile(r"^[A-Z0-9\s\-–—IVXLC]+$")
+ENUM_PREFIX = re.compile(r"^(\(?[0-9ivx]+\)?\.?|\([a-zA-Z]\))\s+")
 # Линия вида "Article 49", "Article 49(1)" (допускаем хвост типа "of this Regulation")
 ARTICLE_REF_LINE_RE = re.compile(r"(?i)^\s*Article\s+\d+[a-zA-Z]?(?:\([^)]+\))?(?:\s+of\b.*)?\s*$")
 
@@ -375,11 +373,6 @@ def parse_rules(raw_text: str) -> List[dict]:
         if block_type == "Article":
             # Парсим Article
             lines = block_text.splitlines()
-
-            def _is_struct_header(s: str) -> bool:
-                s = unicodedata.normalize("NFKC", s or "").replace("\xa0", " ").strip()
-                return bool(STRUCT_HEADER_LINE_RE.match(s))
-
             # ВАЖНО: без \b после номера — сразу после цифр может идти 'Artikel 97'
             m = re.match(r"\s*Article\s+(\d+[a-zA-Z]?)(.*)", lines[0], re.I)
             if m:
@@ -391,57 +384,45 @@ def parse_rules(raw_text: str) -> List[dict]:
                 rest = re.sub(r"(?i)^\s*Artikel\s+\d+[a-zA-Z]?\s*", "", rest).strip()
                 t0 = _norm_title_text(rest)
                 title = t0 if _is_title_like(t0) else ""
-                title_line_idx = 0  # позиция строки, из которой мы взяли title
-
-                # Пропускаем служебные строки между шапкой и заголовком/текстом
-                skip_idx = 1
-                while skip_idx < len(lines):
-                    s = unicodedata.normalize("NFKC", lines[skip_idx]).replace("\xa0", " ").strip()
-                    if not s or _is_struct_header(s):
-                        skip_idx += 1
-                        continue
-                    break
-
+                title_line_idx = 0
                 if not title:
                     marker_seen = False
-                    # 1-й проход: ищем заголовок после служебных строк
-                    for k in range(skip_idx, min(skip_idx + 20, len(lines))):
+                    # 1-й проход: «до пунктов»
+                    for k in range(1, min(20, len(lines))):
                         cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
                         if not cand:
                             continue
-                        # не считаем структурные хедеры заголовком
-                        if _is_struct_header(cand) or re.match(r"^(ANNEX|Article)\b", cand, re.I):
+                        if re.match(r"^(ANNEX|Article)\b", cand, re.I):
                             break
-                        if ENUM_PREFIX.match(cand):
+                        if re.match(r"^(\(?\d+\)?|\d+\.|\([a-zA-Z]\))", cand):
                             marker_seen = True
                             continue
                         if marker_seen:
                             break
                         cand_norm = _norm_title_text(cand)
+                        if _is_title_like(cand_norm) and not END_PUNCT.search(cand_norm) and not ALL_CAPS_ROMAN.fullmatch(cand_norm):
+                            title = cand_norm
+                            title_line_idx = k
+                            break
+                # 2-й проход (fallback): если не нашли — ищем в первых 50 строках даже после начала пунктов
+                if not title:
+                    for k in range(1, min(50, len(lines))):
+                        cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
+                        if not cand:
+                            continue
+                        if re.match(r"^(ANNEX|Article)\b", cand, re.I):
+                            break
+                        if ENUM_PREFIX.match(cand):
+                            continue
+                        cand_norm = _norm_title_text(cand)
+                        # Не брать в качестве заголовка строки, явно продолжающие предложение
                         if _is_hard_title_candidate(cand_norm) and not TITLE_VERB.search(cand_norm[:20]):
                             title = cand_norm
                             title_line_idx = k
                             break
                 rule_title = (title or None)
-
-                # Контент начинаем после title (если он есть) ИЛИ после служебных строк
-                start_idx = max(title_line_idx + 1 if rule_title else 1, skip_idx)
-                raw = "\n".join(lines[start_idx:]).strip()
+                raw = "\n".join(lines[title_line_idx + 1:]).strip()
                 content = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw))
-
-                # Fallback: если title всё ещё пуст, а первая строка тела — «title-like», поднимем её в заголовок
-                if not rule_title and content:
-                    first_line, *rest = content.splitlines()
-                    fl = unicodedata.normalize("NFKC", first_line).replace("\xa0", " ").strip()
-                    fl_norm = _norm_title_text(fl)
-                    if (
-                        not ENUM_PREFIX.match(fl_norm)
-                        and _is_hard_title_candidate(fl_norm)
-                        and not TITLE_VERB.search(fl_norm[:20])
-                    ):
-                        rule_title = fl_norm
-                        content = _sanitize_content("\n".join(rest).strip())
-
                 parent_code = canonicalize(f"Article{code}")
                 rules.append({
                     "section_code": parent_code,
