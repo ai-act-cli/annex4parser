@@ -192,7 +192,20 @@ def _sanitize_content(text: str) -> str:
                 break
             j += 1
 
-        # Пропускаем одиночные маркеры только если после них нет никакого текста
+        # Склейка «голых» маркеров перечисления со следующей непустой строкой текста
+        # Примеры: "1.\nText" -> "1. Text", "(a)\nText" -> "(a) Text"
+        if (re.match(r"^(?:\(?\d+\)?\.?|\([a-zA-Z]\)|\([ivxIVX]+\))$", s)
+                and next_non_empty
+                and not re.match(r"^(?:\(?\d+\)?\.?|\([a-zA-Z]\)|\([ivxIVX]+\))$", next_non_empty)):
+            merged = re.sub(r"\s+$", "", s)
+            if not merged.endswith(".") and re.match(r"^\d+$", merged.strip("()")):
+                merged += "."
+            lines.append(f"{merged} {next_non_empty}")
+            # Пропускаем пустые строки до next_non_empty и саму строку next_non_empty
+            i = j + 1
+            continue
+
+        # Старое правило «выкидывать» маркеры, если вообще нет текста дальше, оставляем как было:
         if re.match(r"^\(?\d+\)?$", s) or re.match(r"^\([a-zA-Z]\)$", s) or re.match(r"^\[\d+\]$", s):
             if not next_non_empty:
                 i += 1
