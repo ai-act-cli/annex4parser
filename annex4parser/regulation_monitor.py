@@ -94,14 +94,8 @@ def _clip_bilingual_trail(s: str) -> str:
 def _norm_title_text(s: str) -> str:
     s = BAD_TICKS.sub("", s)
     s = re.sub(r"^[\u2013\u2014\-:;,\.]+\s*", "", s).strip()
-    # Отрезаем второй язык, если он отделён двойными пробелами и не начинается с ссылки на статью
-    s = re.sub(r"\s{2,}(?!Article\s+\d)[A-Z][A-Za-z].*$", "", s).strip()
-    # Билингвальные склейки чиним мягко (без откусывания хвоста заголовка)
     s = _clip_bilingual_trail(s)
-    # Вместо отсечения по двойным пробелам — просто схлопываем
-    s = re.sub(r"\s{2,}", " ", s).strip()
-    # Повторная проверка на билингвальный хвост после схлопывания пробелов
-    s = _clip_bilingual_trail(s)
+    s = re.split(r"\s{2,}", s)[0].strip()
     return s
 
 
@@ -290,10 +284,6 @@ def parse_rules(raw_text: str) -> List[dict]:
 
         block = t[end : end + 1200]
         lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
-        # NEW: если сразу после "Article N" идут секции Annex ("Section A — ..."),
-        # это не заголовок статьи, а перекрёстная ссылка в шапке Annex.
-        if any(re.match(r"(?i)^\s*Section\s+[A-Z]\b", ln) for ln in lines[:5]):
-            return False
         # 2) в первых 5 строках — заголовок; либо в первых 10 — начало пунктов "1."
         if any(_is_title_like(_norm_title_text(ln)) for ln in lines[:5]):
             return True
@@ -438,8 +428,8 @@ def parse_rules(raw_text: str) -> List[dict]:
                     # Убираем французский дубль, бэктики и левую пунктуацию
                     t = re.sub(r"(?i)\bANNEXE\s+[IVXLC]+\b", "", annex_title).strip()
                     t = _clean_title_piece(t)
-                    t = _norm_title_text(t)
-                    annex_title = t
+                    t = re.sub(r"^[\u2013\u2014\-:;,\.]\s*", "", t)
+                    annex_title = re.split(r"\s{2,}", t)[0].strip()
                 if annex_title and (not _is_title_like(annex_title) or TITLE_VERB.search(annex_title) or END_PUNCT.search(annex_title)):
                     annex_title = ""
 
