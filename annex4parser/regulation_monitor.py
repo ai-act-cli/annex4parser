@@ -403,44 +403,28 @@ def parse_rules(raw_text: str) -> List[dict]:
                     break
 
                 if not title:
-                    marker_seen = False
-                    # 1-й проход: ищем заголовок после служебных строк
-                    for k in range(skip_idx, min(skip_idx + 20, len(lines))):
+                    for k in range(skip_idx, min(skip_idx + 40, len(lines))):
                         cand = unicodedata.normalize("NFKC", lines[k]).replace("\xa0", " ").strip()
                         if not cand:
                             continue
-                        # не считаем структурные хедеры заголовком
+                        # стоп, если начались пункты "1." — дальше уже тело
+                        if re.match(r"^\d+\.\s+", cand):
+                            break
+                        # пропускаем структурные заголовки и лейблы
                         if _is_struct_header(cand) or re.match(r"^(ANNEX|Article)\b", cand, re.I):
-                            break
-                        if ENUM_PREFIX.match(cand):
-                            marker_seen = True
                             continue
-                        if marker_seen:
-                            break
                         cand_norm = _norm_title_text(cand)
-                        if _is_hard_title_candidate(cand_norm) and not TITLE_VERB.search(cand_norm[:20]):
+                        if _is_hard_title_candidate(cand_norm) and not TITLE_VERB.search(cand_norm[:30]):
                             title = cand_norm
                             title_line_idx = k
                             break
                 rule_title = (title or None)
 
-                # Контент начинаем после title (если он есть) ИЛИ после служебных строк
-                start_idx = max(title_line_idx + 1 if rule_title else 1, skip_idx)
+                # контент начинается сразу ПОСЛЕ строки заголовка (если нашли),
+                # иначе — после всех служебных строк
+                start_idx = (title_line_idx + 1) if rule_title else max(1, skip_idx)
                 raw = "\n".join(lines[start_idx:]).strip()
                 content = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw))
-
-                # Fallback: если title всё ещё пуст, а первая строка тела — «title-like», поднимем её в заголовок
-                if not rule_title and content:
-                    first_line, *rest = content.splitlines()
-                    fl = unicodedata.normalize("NFKC", first_line).replace("\xa0", " ").strip()
-                    fl_norm = _norm_title_text(fl)
-                    if (
-                        not ENUM_PREFIX.match(fl_norm)
-                        and _is_hard_title_candidate(fl_norm)
-                        and not TITLE_VERB.search(fl_norm[:20])
-                    ):
-                        rule_title = fl_norm
-                        content = _sanitize_content("\n".join(rest).strip())
 
                 parent_code = canonicalize(f"Article{code}")
                 rules.append({
@@ -531,10 +515,13 @@ def parse_rules(raw_text: str) -> List[dict]:
                 if sections:
                     for letter, title_line, section_body in sections:
                         child_code = canonicalize(f"{parent_code}.{letter}")
-                        section_content = _sanitize_content(f"{title_line}\n{section_body}")
+                        # Заголовок секции: сама линия "Section X — ..."
+                        section_title = _norm_title_text(title_line.strip())
+                        # Контент секции: тело без первой строки "Section X"
+                        section_content = _sanitize_content(section_body)
                         rules.append({
                             "section_code": child_code,
-                            "title": None,
+                            "title": section_title,
                             "content": section_content,
                             "parent_section_code": parent_code,
                             "order_index": format_order_index(letter),
