@@ -285,12 +285,24 @@ class RegulationMonitorV2:
                 pdf = next((i for i in items if i.get("format", "").upper().find("PDF") >= 0), None)
                 html = next((i for i in items if i.get("format", "").upper().find("HTML") >= 0), None)
                 try:
-                    if pdf:
-                        txt = await self._fetch_pdf_text(session, pdf["url"])
-                        if (not txt or len(txt) < 300) and html:
-                            txt = await self._fetch_html_text(session, html["url"])
-                    elif html:
-                        txt = await self._fetch_html_text(session, html["url"])
+                    # ВАЖНО: предпочитаем HTML, затем PDF (PDF даёт меньше секций при парсинге)
+                    prefer = (extra.get("prefer_text") or "html").lower()
+                    chosen = None
+                    if prefer == "html" and html:
+                        chosen = ("html", html.get("url"))
+                        txt = await self._fetch_html_text(session, chosen[1])
+                    elif prefer == "pdf" and pdf:
+                        chosen = ("pdf", pdf.get("url"))
+                        txt = await self._fetch_pdf_text(session, chosen[1])
+                    else:
+                        if html:
+                            chosen = ("html", html.get("url"))
+                            txt = await self._fetch_html_text(session, chosen[1])
+                        elif pdf:
+                            chosen = ("pdf", pdf.get("url"))
+                            txt = await self._fetch_pdf_text(session, chosen[1])
+                    if chosen:
+                        logger.info(f"ELI chosen text source: {chosen[0]} -> {chosen[1]}")
                 except Exception as e:
                     url_err = (pdf or html or {}).get("url")
                     logger.warning(f"Failed to fetch item {url_err}: {e}")

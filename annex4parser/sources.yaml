@@ -12,6 +12,7 @@ sources:
     freq: "6h"
     active: true   # включить, когда убедишься что запись доступна
     description: "EU AI Act consolidated version"
+    prefer_text: html
     
   - id: ai_act_original
     type: eli_sparql
@@ -21,6 +22,7 @@ sources:
     sparql: "file:queries/ai_act_original.rq"
     freq: "6h"
     description: "EU AI Act original regulation"
+    prefer_text: html
     
   # --- RSS ---
   - id: ep_plenary
