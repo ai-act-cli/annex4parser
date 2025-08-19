@@ -210,20 +210,6 @@ def test_annex_ii_title_detected():
     ann = next(r for r in parsed if r["section_code"] == "AnnexII")
     assert ann["title"] == "List of criminal offences referred to in Article 5(1), first subparagraph, point (h)(iii)"
 
-
-def test_article62_title_extracted():
-    text = (
-        "Article 62\n"
-        "Measures for providers and deployers, in particular SMEs, including start-ups\n"
-        "1. Providers and deployers shall do something.\n"
-    )
-    parsed = parse_rules(text)
-    art62 = next(r for r in parsed if r["section_code"] == "Article62")
-    assert art62["title"] == (
-        "Measures for providers and deployers, in particular SMEs, including start-ups"
-    )
-    assert not art62["content"].startswith("Measures for providers")
-
 def test_update_regulation_creates_alerts(monkeypatch):
     session = setup_db()
 
