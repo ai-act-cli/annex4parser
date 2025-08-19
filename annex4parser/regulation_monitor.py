@@ -65,8 +65,6 @@ STRUCT_BOUNDARY_RE = re.compile(
 END_PUNCT = re.compile(r"[.:;]\s*$")
 ALL_CAPS_ROMAN = re.compile(r"^[A-Z0-9\s\-–—IVXLC]+$")
 ENUM_PREFIX = re.compile(r"^(\(?[0-9ivx]+\)?\.?|\([a-zA-Z]\))\s+")
-# Линия вида "Article 49", "Article 49(1)" (допускаем хвост типа "of this Regulation")
-ARTICLE_REF_LINE_RE = re.compile(r"(?i)^\s*Article\s+\d+[a-zA-Z]?(?:\([^)]+\))?(?:\s+of\b.*)?\s*$")
 
 
 def _is_title_like(s: str) -> bool:
@@ -144,17 +142,12 @@ def _unwrap_soft_linebreaks(s: str) -> str:
     s = re.sub(r"(\w)[\u2010-\u2014-]\s*\n\s*(\w)", r"\1\2", s)
 
     def _join(m: re.Match) -> str:
-        before_char, after = m.group(1), m.group(2)
-        start = m.start(1)
-        line_start = s.rfind("\n", 0, start) + 1
-        before_line = s[line_start:start + 1]
+        before, after = m.group(1), m.group(2)
         if re.match(r"^\s*(?:\(?[a-z]\)|\([ivx]+\)|\d+\.)\s+", after, re.I):
-            return before_char + "\n" + after
+            return before + "\n" + after
         if re.match(r"^(?:ANNEX|Article|Section|Chapter|Part)\b", after, re.I):
-            return before_char + "\n" + after
-        if re.match(r"(?i)^Article\s+\d", before_line.strip()):
-            return before_char + "\n" + after
-        return before_char + " " + after
+            return before + "\n" + after
+        return before + " " + after
 
     return re.sub(r"([^\n])\n(?!\n)([^\n][^\n]*)", _join, s)
 
@@ -434,19 +427,12 @@ def parse_rules(raw_text: str) -> List[dict]:
         elif block_type == "Annex":
             # Парсим Annex
             lines = block_text.splitlines()
-
-            def _next_non_empty(idx: int) -> int:
-                j = idx
-                while j < len(lines) and not (lines[j].strip()):
-                    j += 1
-                return j
-
             header_line = lines[0]
             m = re.match(r"(?i)^\s*ANNEX\s+([IVXLC]+)\b(?:\s+(.*))?$", header_line)
             if m:
                 roman = m.group(1).upper()
                 annex_title = (m.group(2) or "").strip()
-                consumed = 0  # сколько строк ПОСЛЕ header мы съели под title
+                consumed = 0
 
                 if annex_title:
                     # Убираем французский дубль, бэктики и левую пунктуацию
@@ -454,11 +440,6 @@ def parse_rules(raw_text: str) -> List[dict]:
                     t = _clean_title_piece(t)
                     t = _norm_title_text(t)
                     annex_title = t
-                    # Если следующая непустая строка — отдельная "Article N", приклеим её к заголовку
-                    j = _next_non_empty(1)
-                    if j < len(lines) and ARTICLE_REF_LINE_RE.match(lines[j].strip()) and "Article" not in annex_title:
-                        annex_title = _norm_title_text(f"{annex_title} {lines[j].strip()}")
-                        consumed = j  # съели строку Article N в заголовок
                 if annex_title and (not _is_title_like(annex_title) or TITLE_VERB.search(annex_title) or END_PUNCT.search(annex_title)):
                     annex_title = ""
 
@@ -484,18 +465,11 @@ def parse_rules(raw_text: str) -> List[dict]:
                             break
                         if not _is_title_like(t_norm):
                             break
-                        first_title = _norm_title_text(t_norm)
+                        first_title = t_norm
                         k += 1
                         break
                     annex_title = first_title
                     consumed = (k - 1) if annex_title else 0
-
-                    # Дополнительно: если сразу ПОСЛЕ первой title-строки идёт отдельная "Article N" — приклеим
-                    if annex_title:
-                        j = _next_non_empty(k)
-                        if j < len(lines) and ARTICLE_REF_LINE_RE.match(lines[j].strip()) and "Article" not in annex_title:
-                            annex_title = _norm_title_text(f"{annex_title} {lines[j].strip()}")
-                            consumed = j  # съели строку Article N в заголовок
 
                 raw_body = "\n".join(lines[1 + consumed:]).strip()
                 body = _sanitize_content(re.sub(r"\n{3,}", "\n\n", raw_body))
