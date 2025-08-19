@@ -158,10 +158,42 @@ class TestAnnexParsing:
         
         rules = parse_rules(text)
         annex_rules = [r for r in rules if r['section_code'].startswith('Annex')]
-        
+
         assert len(annex_rules) == 2
         assert any(r['section_code'] == 'AnnexIV' for r in annex_rules)
         assert any(r['section_code'] == 'AnnexVII' for r in annex_rules)
+
+    def test_annex_does_not_break_on_article_reference(self):
+        """Annex header with 'Article 49' should keep title and content."""
+        text = """
+        ANNEX VIII Information to be submitted upon the registration of high-risk AI systems in accordance with  Article 49
+
+        Section A — Information to be submitted upon the registration of high-risk AI systems pursuant to Article 49(1)
+        1. The name, address and contact details of the provider;
+
+        Section B — Information to be submitted upon the registration of high-risk AI systems pursuant to Article 49(2)
+        1. The name, address and contact details of the provider;
+
+        Section C — Information to be submitted upon the registration of high-risk AI systems pursuant to Article 49(3)
+        1. The name, address and contact details of the deployer;
+        """
+
+        rules = parse_rules(text)
+
+        annex = next(r for r in rules if r['section_code'] == 'AnnexVIII')
+        assert annex['title'] == (
+            'Information to be submitted upon the registration of high-risk AI systems in accordance with Article 49'
+        )
+
+        codes = {r['section_code'] for r in rules}
+        assert 'Article49' not in codes
+
+        section_a1 = next(r for r in rules if r['section_code'] == 'AnnexVIII.A.1')
+        assert 'name, address and contact details of the provider' in section_a1['content']
+        section_b1 = next(r for r in rules if r['section_code'] == 'AnnexVIII.B.1')
+        assert 'name, address and contact details of the provider' in section_b1['content']
+        section_c1 = next(r for r in rules if r['section_code'] == 'AnnexVIII.C.1')
+        assert 'name, address and contact details of the deployer' in section_c1['content']
 
     def test_parse_articles_and_annexes_together(self):
         """Тест парсинга Articles и Annexes вместе."""
