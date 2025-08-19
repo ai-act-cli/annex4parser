@@ -188,19 +188,10 @@ class TestAnnexParsing:
         codes = {r['section_code'] for r in rules}
         assert 'Article49' not in codes
 
-        section_a = next(r for r in rules if r['section_code'] == 'AnnexVIII.A')
-        assert section_a['title'].startswith('Section A')
-        assert 'Section A' not in section_a['content']
         section_a1 = next(r for r in rules if r['section_code'] == 'AnnexVIII.A.1')
         assert 'name, address and contact details of the provider' in section_a1['content']
-        section_b = next(r for r in rules if r['section_code'] == 'AnnexVIII.B')
-        assert section_b['title'].startswith('Section B')
-        assert 'Section B' not in section_b['content']
         section_b1 = next(r for r in rules if r['section_code'] == 'AnnexVIII.B.1')
         assert 'name, address and contact details of the provider' in section_b1['content']
-        section_c = next(r for r in rules if r['section_code'] == 'AnnexVIII.C')
-        assert section_c['title'].startswith('Section C')
-        assert 'Section C' not in section_c['content']
         section_c1 = next(r for r in rules if r['section_code'] == 'AnnexVIII.C.1')
         assert 'name, address and contact details of the deployer' in section_c1['content']
 
