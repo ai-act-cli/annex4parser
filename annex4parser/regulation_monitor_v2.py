@@ -658,6 +658,15 @@ class RegulationMonitorV2:
         # схлопываем пробелы/пустые абзацы
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
+
+        # NEW: склеиваем «голые» маркеры перечислений с последующей строкой текста
+        # Примеры: "1.\nText" -> "1. Text", "(a)\nText" -> "(a) Text", "(i)\nText" -> "(i) Text"
+        label = r"(?:\(?\d+\)?\.?|\([a-z]\)|\([ivx]+\))"
+        text = re.sub(
+            rf"(?mi)^(?P<label>{label})\s*\n\s+(?!{label}\b)",
+            r"\g<label> ",
+            text,
+        )
         # EUR-Lex footers/tails: ELI and OJ page markers
         text = re.sub(r"(?im)^\s*ELI:\s*\S+.*$", "", text)  # whole-line ELI footer
         text = re.sub(
